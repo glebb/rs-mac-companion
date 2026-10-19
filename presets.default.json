@@ -1,0 +1,34 @@
+{
+  "_help": [
+    "Maps Rocksmith tones to your presets. Checked in this order, first match wins:",
+    "1. songs: per arrangement and slot, e.g. {\"skid18an_lead\": {\"C\": \"Distortion\"}} (slots: Base, A, B, C, D)",
+    "2. tones: per tone key (see tone_catalog.csv), e.g. {\"skid18an_dist\": \"Crunch\"}",
+    "3. rules: the first rule whose 'any' tags or 'name' words match the tone",
+    "4. default",
+    "rstone re-reads this file while running, so edits apply on the next tone change.",
+    "The companion app switches between four categories (Clean, Crunch, Heavy, Lead; MIDI Program Change 0-3).",
+    "Its overrides use those names; 'categories' says which category every other preset name means."
+  ],
+  "categories": {"Clean": "Clean", "Crunch": "Crunch", "Distortion": "Heavy", "Heavy": "Heavy", "Lead": "Lead",
+                 "Acoustic": "Clean", "Bass": "Clean", "Bass Drive": "Crunch"},
+  "presets": ["Clean", "Crunch", "Distortion", "Lead", "Acoustic", "Bass", "Bass Drive"],
+  "songs": {},
+  "tones": {},
+  "rules": [
+    {"preset": "Bass Drive", "all": ["BASS"], "any": ["DISTORTION", "OVERDRIVE", "FUZZ", "HIGH GAIN"]},
+    {"preset": "Bass", "any": ["BASS"]},
+    {"preset": "Acoustic", "any": ["ACOUSTIC"]},
+    {"preset": "Lead", "any": ["LEAD"]},
+    {"preset": "Distortion", "any": ["DISTORTION", "HIGH GAIN", "FUZZ"]},
+    {"preset": "Crunch", "any": ["OVERDRIVE"]},
+    {"preset": "Clean", "any": ["CLEAN", "CHORUS", "REVERB", "TREMOLO", "PHASER", "FLANGER", "ECHO", "DELAY",
+                                "FILTER", "OCTAVE", "LOW OUTPUT", "SPECIAL EFFECT", "PROCESSED"]},
+    {"preset": "Bass", "name": ["bass"]},
+    {"preset": "Acoustic", "name": ["acoustic", "acc"]},
+    {"preset": "Lead", "name": ["lead", "solo"]},
+    {"preset": "Distortion", "name": ["dist", "heavy", "metal", "fuzz", "gain", "drive"]},
+    {"preset": "Crunch", "name": ["crunch", "od", "overdrive"]},
+    {"preset": "Clean", "name": ["clean", "cln"]}
+  ],
+  "default": "Clean"
+}

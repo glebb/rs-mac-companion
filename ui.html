@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rocksmith Tones</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --panel: #ffffff; --text: #1d1d1f; --muted: #6e6e73; --line: #e3e3e0;
+    --accent: #b4361f; --ok: #2f7d4f; --warn: #a86b00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #141414; --panel: #1e1e1e; --text: #f2f2f2; --muted: #9a9a9f; --line: #2e2e2e;
+            --accent: #ff7a5c; --ok: #5cc98a; --warn: #f0b44c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px; }
+  .status { color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--ok); }
+  .song { margin: 18px 0 4px; font-size: 26px; font-weight: 650; }
+  .arr { color: var(--muted); }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 22px 0; }
+  @media (max-width: 560px) { .cards { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+  .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  .big { font-size: 34px; font-weight: 700; margin: 6px 0 2px; overflow-wrap: anywhere; }
+  .preset .big { color: var(--accent); }
+  .sub { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .flash { animation: flash .8s ease-out; }
+  @keyframes flash { from { background: color-mix(in srgb, var(--accent) 22%, var(--panel)); } }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+  td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.num { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+  .src-timer { color: var(--ok); } .src-banner { color: var(--warn); }
+  .empty { color: var(--muted); padding: 24px 0; }
+  .warning { display: none; margin: 14px 0 0; padding: 10px 14px; border-radius: 8px;
+             border: 1px solid var(--warn); color: var(--warn); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="status"><span class="dot" id="dot"></span><span id="status">Connecting…</span></div>
+  <div class="warning" id="warning"></div>
+  <div class="song" id="song">Waiting for a song</div>
+  <div class="arr" id="arr"></div>
+  <div class="cards">
+    <div class="card" id="toneCard">
+      <div class="label">In-game tone</div>
+      <div class="big" id="tone">–</div>
+      <div class="sub" id="toneKey"></div>
+    </div>
+    <div class="card preset" id="presetCard">
+      <div class="label">Mapped preset</div>
+      <div class="big" id="preset">–</div>
+      <div class="sub" id="reason"></div>
+    </div>
+  </div>
+  <table>
+    <thead><tr><th>Clock</th><th>Song time</th><th>Tone</th><th>Preset</th><th>Source</th></tr></thead>
+    <tbody id="history"></tbody>
+  </table>
+  <div class="empty" id="empty">Tone changes will appear here.</div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+// Song files (custom songs especially) and presets.json are not trusted: escape before HTML.
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[c]);
+let lastSeq = -1;
+
+function title(t) {  // the game shows a tone's tags joined, e.g. CLEAN + CHORUS -> "Clean Chorus"
+  if (t.descriptors && t.descriptors.length)
+    return t.descriptors.map(d => d.charAt(0) + d.slice(1).toLowerCase()).join(" ");
+  return t.tone;
+}
+
+function flash(el) { el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); }
+
+async function poll() {
+  try {
+    const s = await (await fetch("/state", {cache: "no-store"})).json();
+    $("dot").classList.toggle("on", s.attached);
+    $("status").textContent = s.attached ? (s.timer_confirmed ? "Connected · song timer locked" : "Connected · waiting for first tone change to lock timer")
+                                         : "Waiting for Rocksmith…";
+    $("warning").style.display = s.warning ? "block" : "none";
+    $("warning").textContent = s.warning || "";
+    if (s.song) {
+      $("song").textContent = `${s.song.artist} – ${s.song.song}`;
+      $("arr").textContent = `${s.song.path} · ${s.song.arrangement}`;
+    } else {
+      $("song").textContent = "Waiting for a song";
+      $("arr").textContent = "";
+    }
+    const t = s.tone;
+    if (!t) { $("tone").textContent = "–"; $("toneKey").textContent = ""; $("preset").textContent = "–"; $("reason").textContent = ""; lastSeq = -1; }
+    if (t && s.seq !== lastSeq) {
+      lastSeq = s.seq;
+      $("tone").textContent = title(t);
+      $("toneKey").textContent = `${t.tone} · slot ${t.slot}`;
+      $("preset").textContent = t.preset || "–";
+      $("reason").textContent = t.preset_reason || "";
+      flash($("toneCard")); flash($("presetCard"));
+    }
+    $("empty").style.display = s.history.length ? "none" : "block";
+    $("history").innerHTML = s.history.slice().reverse().map(h =>
+      `<tr><td class="num">${esc(h.clock)}</td><td class="num">${typeof h.time === "number" ? h.time.toFixed(2) + " s" : "–"}</td>` +
+      `<td>${esc(title(h))}<div class="sub">${esc(h.tone)}</div></td><td>${esc(h.preset || "–")}</td>` +
+      `<td class="src-${h.source === "timer" ? "timer" : "banner"}">${esc(h.source)}</td></tr>`).join("");
+  } catch (e) {
+    $("dot").classList.remove("on");
+    $("status").textContent = "rstone is not running";
+  }
+  setTimeout(poll, 100);
+}
+poll();
+</script>
+</body>
+</html>

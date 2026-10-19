@@ -1,0 +1,11 @@
+build/
+__pycache__/
+*.pyc
+.DS_Store
+# Personal data is written to ~/Library/Application Support/rs-mac-companion, never here.
+# These guard against copies made by hand:
+tones_index.jsonl
+index_cache.json
+tone_catalog.csv
+songs.csv
+*.log

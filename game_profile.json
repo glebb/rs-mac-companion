@@ -1,0 +1,10 @@
+{
+  "_about": "Values tied to one Rocksmith 2014 Remastered build (macOS, Steam). If the game updates and rstone warns about the executable hash, follow docs/when-the-game-updates.md.",
+  "executable_sha256": "6cdd3029a0cd42ac043d30d3e4a1d819eb517ef5c8f459f0e9366f450f07ab82",
+  "x86_64_slice_sha256": "c55411d9d4d9da7a9242561b64921c370644ece82fc97cde78c1e4eadba40c6a",
+  "image_base": "0x100000000",
+  "arrangement_vtable": "0x1017F8C20",
+  "arrangement_name_offset": "0x18",
+  "arrangement_tones_offset": "0x178",
+  "arrangement_tone_stride": "0x20"
+}

@@ -1,0 +1,64 @@
+import Foundation
+
+/// Settings in DATA_DIR/rscompanion.json, shared with the in-game dylib (which reads lead_ms
+/// and picks up changes within a second). Keys this app does not know are kept.
+///   {"lead_ms": 100, "midi_channel": 1, "programs": {"Clean": 0, "Crunch": 1, "Heavy": 2, "Lead": 3},
+///    "game_dir": "/path/to/Rocksmith2014"}     (game_dir only when not Steam's default)
+struct Settings: Equatable {
+    var gameDir: String?            // the Rocksmith2014 folder, if not Steam's default
+    var leadMs = 100
+    var channel = 1                 // 1-16
+    var programs = [0, 1, 2, 3]     // Program Change per category (Clean, Crunch, Heavy, Lead)
+
+    /// Common layouts: the four categories on Program Change 0-3 or 4-7 (e.g. two guitar
+    /// channels of one device), or a number per category.
+    enum Target: String, CaseIterable, Identifiable {
+        case first = "Program Change 0–3"
+        case second = "Program Change 4–7"
+        case custom = "Custom"
+        var id: String { rawValue }
+        var programs: [Int]? {
+            switch self {
+            case .first: [0, 1, 2, 3]
+            case .second: [4, 5, 6, 7]
+            case .custom: nil
+            }
+        }
+    }
+
+    /// Picking 0-3 or 4-7 sets the programs; Custom keeps them to edit.
+    var target: Target {
+        get { Target.allCases.first { $0.programs == programs } ?? .custom }
+        set {
+            if let p = newValue.programs { programs = p }
+            else if newValue == .custom, target != .custom { programs = programs.map { $0 + 8 } }  // leave the presets
+        }
+    }
+
+    func program(for category: Category) -> Int { programs[category.rawValue] }
+
+    static func load(from path: String) -> Settings {
+        var s = Settings()
+        guard let raw = FileManager.default.contents(atPath: path),
+              let json = try? JSONSerialization.jsonObject(with: raw) as? [String: Any] else { return s }
+        if let v = json["game_dir"] as? String, !v.isEmpty { s.gameDir = v }
+        if let v = json["lead_ms"] as? Int { s.leadMs = min(max(v, 0), 2000) }
+        if let v = json["midi_channel"] as? Int { s.channel = min(max(v, 1), 16) }
+        if let p = json["programs"] as? [String: Any] {
+            for c in Category.allCases { if let v = p[c.name] as? Int { s.programs[c.rawValue] = min(max(v, 0), 127) } }
+        }
+        return s
+    }
+
+    func save(to path: String) {
+        var json = (FileManager.default.contents(atPath: path))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        json["game_dir"] = gameDir
+        json["lead_ms"] = leadMs
+        json["midi_channel"] = channel
+        json["programs"] = Dictionary(uniqueKeysWithValues: Category.allCases.map { ($0.name, programs[$0.rawValue]) })
+        if let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        }
+    }
+}
