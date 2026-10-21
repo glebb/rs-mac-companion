@@ -8,6 +8,10 @@
 //   - a menu clock and a clock that keeps resetting every 8 s (decoys that also tick at 1 s/s),
 //   - the game's tone banners "<Song> - <Tone>" at Self Trap (Rhythm)'s tone changes
 //     40.164 s (Distortion) and 63.023 s (Clean).
+// With a 4th argument "notones": Self Trap's bass (no tone changes, so no banners) is selected,
+// the song starts at e = 5 s (timer from 0), a clock starts when the song is picked (e = 3 s,
+// like the game's), and the game's play record "Play_SelfTrap" holds the song position, next
+// to a stale record from an earlier play and the preview's "Play_SelfTrap_Preview".
 // Built as x86_64, so it runs under Rosetta like the real game.
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
@@ -21,7 +25,21 @@
 #define ARRANGEMENT_VTABLE 0x1017F8C20ULL
 
 // Objects kept here so the compiler cannot drop allocations nothing else reads.
-void *volatile g_objects[8];
+void *volatile g_objects[12];
+
+// A play record: the event name as an inline 32-byte string, then the position as float
+// seconds (+0x20) and int32 milliseconds (+0x24).
+static uint8_t *play_record(const char *name, double pos) {
+    uint8_t *r = calloc(1, 0x40);
+    strcpy((char *)r, name);
+    uint64_t end = (uint64_t)r + strlen(name);
+    memcpy(r + 0x10, &end, 8);
+    float f = (float)pos;
+    int32_t ms = (int32_t)(pos * 1000);
+    memcpy(r + 0x20, &f, 4);
+    memcpy(r + 0x24, &ms, 4);
+    return r;
+}
 
 // An arrangement description object: type pointer at +0, name at +0x18 as a 32-byte
 // small-buffer string {char buf[16] | char *ptr; char *end; char *cap}.
@@ -43,10 +61,11 @@ static void *arrangement(uint64_t vtable, const char *name) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 4) {
-        fprintf(stderr, "usage: rs-standin-dylib <archive> <sng offset> <audio offset>\n");
+    if (argc != 4 && argc != 5) {
+        fprintf(stderr, "usage: rs-standin-dylib <archive> <sng offset> <audio offset> [notones]\n");
         return 2;
     }
+    int notones = argc == 5 && !strcmp(argv[4], "notones");
     uint64_t slide = 0;
     for (uint32_t i = 0; i < _dyld_image_count(); i++)
         if (_dyld_get_image_header(i)->filetype == MH_EXECUTE) slide = (uint64_t)_dyld_get_image_vmaddr_slide(i);
@@ -54,7 +73,12 @@ int main(int argc, char **argv) {
     g_objects[0] = arrangement(vt, "boysdontcry_combo");
     g_objects[1] = arrangement(vt, "boysdontcry_combo");
 
-    volatile double *menu = malloc(8), *loop = malloc(8), *song = malloc(8);
+    volatile double *menu = malloc(8), *loop = malloc(8), *song = malloc(8), *picked = malloc(8);
+    uint8_t *rec = NULL;
+    if (notones) {
+        g_objects[7] = play_record("Play_SelfTrap", 61.25);  // stale, from an earlier play
+        g_objects[8] = play_record("Play_SelfTrap_Preview", 0);
+    }
     volatile double *dd = malloc(2000000 * 8);
     for (int i = 0; i < 2000000; i++) dd[i] = 0.5 + (i % 99991) * 0.01;
     static char buf[65536];
@@ -76,7 +100,7 @@ int main(int argc, char **argv) {
         if (!g_objects[2] && e >= 3) {
             g_objects[2] = arrangement(vt, "selftrap_rhythm");
             g_objects[3] = arrangement(vt, "selftrap_bass");
-            g_objects[4] = arrangement(vt, "selftrap_rhythm");
+            g_objects[4] = arrangement(vt, notones ? "selftrap_bass" : "selftrap_rhythm");
         }
         if (!read_audio && e >= 4) {
             fseeko(f, atoll(argv[3]), SEEK_SET);
@@ -85,6 +109,19 @@ int main(int argc, char **argv) {
         }
         *menu = e + 15;
         *loop = e - 8 * (int)(e / 8);
+        if (notones) {
+            *picked = e < 3 ? 0.0 : e - 3;
+            *song = e < 5 ? 0.0 : e - 5;
+            if (!rec && e >= 5) g_objects[9] = rec = play_record("Play_SelfTrap", 0);
+            if (rec) {
+                float f = (float)*song;
+                int32_t ms = (int32_t)(*song * 1000);
+                memcpy(rec + 0x20, &f, 4);
+                memcpy(rec + 0x24, &ms, 4);
+            }
+            usleep(16000);
+            continue;
+        }
         *song = e < 20 ? 0.0 : e - 20 + 30;
         if (!b1 && *song >= 40.164) g_objects[5] = b1 = strdup("Self Trap - Distortion");
         if (!b2 && *song >= 63.023) g_objects[6] = b2 = strdup("Self Trap - Clean");

@@ -1,6 +1,6 @@
 #!/bin/sh
 # End-to-end test of the in-game dylib (native/rscompanion.c) without the game, against
-# tests/standin_dylib.c (two runs of about 60 s), with tools/event_listener.py receiving the
+# tests/standin_dylib.c (two runs of about 60 s and one of 30 s), with tools/event_listener.py receiving the
 # events on the socket as the companion app would. Checks:
 #   - the song is detected from the stand-in's file reads of the game's own songs.psarc (Self
 #     Trap, which comes with the game), the selected arrangement is picked (not a stale one), and
@@ -9,7 +9,10 @@
 #     ignoring decoy clocks), next change from the timer, on time,
 #   - a state heartbeat about every second,
 #   - run 2 reuses the memory tags learned in run 1 (narrow scans) and a lead time of 500 ms
-#     set in rscompanion.json.
+#     set in rscompanion.json,
+#   - run 3 (stand-in "notones": Self Trap's bass, no tone changes, no banners): the game's play
+#     record "Play_SelfTrap" locks the song timer within seconds of the song starting, ignoring a
+#     stale record and a clock started when the song was picked.
 # Needs the game installed (songs.psarc). Everything goes to a temporary folder, so your own data
 # is not touched.
 set -e
@@ -26,9 +29,9 @@ HOME_DIR=$(mktemp -d /tmp/rsc.XXXXXX)  # short: socket paths are limited to 104 
 DATA="$HOME_DIR/Library/Application Support/rs-mac-companion"
 mkdir -p "$DATA"
 STANDIN= LISTENER=
-trap 'kill $STANDIN $LISTENER 2>/dev/null; wait 2>/dev/null; rm -rf "$HOME_DIR"' EXIT
+trap 'kill $STANDIN $LISTENER 2>/dev/null || true; wait 2>/dev/null; rm -rf "$HOME_DIR"' EXIT
 
-for RUN in 1 2; do
+for RUN in 1 2 3; do
   LOG="$DATA/rscompanion.log" EVENTS="$DATA/events.jsonl"
   rm -f "$LOG" "$EVENTS"
   [ $RUN = 2 ] && echo '{"lead_ms": 500}' > "$DATA/rscompanion.json"
@@ -36,9 +39,9 @@ for RUN in 1 2; do
   LISTENER=$!
   sleep 1
   HOME="$HOME_DIR" DYLD_INSERT_LIBRARIES="$PWD/build/librscompanion.dylib" \
-    build/rs-standin-dylib "$ARCHIVE" "$SNG" "$AUDIO" &
+    build/rs-standin-dylib "$ARCHIVE" "$SNG" "$AUDIO" $([ $RUN = 3 ] && echo notones) &
   STANDIN=$!
-  sleep 60
+  if [ $RUN = 3 ]; then sleep 30; else sleep 60; fi
   kill $STANDIN $LISTENER; wait $STANDIN $LISTENER 2>/dev/null || true
   echo "run $RUN:"
   grep -v '^\S* EVENT' "$LOG" | grep -v '^\S*   ' | grep -v 'banner seen' | sed 's/^/  log: /'
@@ -48,6 +51,28 @@ log, events_file, run = sys.argv[1], sys.argv[2], int(sys.argv[3])
 lines = open(log).read().splitlines()
 events = [json.loads(l) for l in open(events_file)]
 problems = []
+
+if run == 3:
+    tones = [(e["source"], e["arrangement"], e["slot"], e["tone"]) for e in events if e["event"] == "tone"]
+    print("  ", tones)
+    if tones != [("song-start", "selftrap_bass", "Base", "SelfTrap_bass")]:
+        problems.append("tones: expected only the starting tone of selftrap_bass")
+    states = [e for e in events if e["event"] == "state"]
+    locked = [e for e in states if e.get("timer_locked")]
+    first = locked[0].get("time") if locked else None
+    last = states[-1] if states else {}
+    print(f"   {len(states)} heartbeats; first locked one at song time {first}; last: locked "
+          f"{last.get('timer_locked')}, time {last.get('time')}")
+    # The song starts 5 s into the run; the run is 30 s, so the song is ~24 s in at the end.
+    if first is None or first > 12 or not last.get("timer_locked") or not 22 <= (last.get("time") or 0) <= 26:
+        problems.append("expected the timer locked within 12 s of the song start, at the song time")
+    lock = [i for i, l in enumerate(lines) if "play record: song timer is the double" in l]
+    if not lock or any("timer search" in l for l in lines[lock[0] + 1:]):
+        problems.append("expected a lock by the play record and no timer search after it")
+    for p in problems:
+        print("   FAIL:", p)
+    print(f"run {run}:", "FAIL" if problems else "PASS")
+    sys.exit(1 if problems else 0)
 
 tones = [(e["source"], e["arrangement"], e["slot"], e["tone"], e.get("time")) for e in events if e["event"] == "tone"]
 for t in tones:

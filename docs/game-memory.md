@@ -129,9 +129,9 @@ The position in the playing song, which with the song file's tone timeline tells
 | Fact | Detail |
 |---|---|
 | Type | **double, seconds** (a float search never finds it) |
-| Where | a heap object (tag 2) that lives for the **whole game session**: the same address for every song. Once found, keep it until it is unreadable or the game restarts. |
-| Behavior | advances only while a song plays; stops when paused, including when Rocksmith loses focus; restarts near 0 for each song (and jumps back to 0 when leaving a song). |
-| Decoys | menu and animation clocks also tick at 1 s/s; some reset every few seconds and can be smaller than the song timer. Never guess: confirm (below). |
+| Where | heap memory (tag 2), usually several copies (seen: 4–8). A copy often stays at the same address for many songs, **but not always**: one was freed and reused a few songs later, and then read as garbage (e.g. 0.0). Check it again for every song (play record, below). |
+| Behavior | advances only while a song plays; stops when paused, including when Rocksmith loses focus; restarts near 0 for each song (and jumps back to 0 when leaving a song). Copies hold float precision (e.g. `81.73200225830078`). |
+| Decoys | menu and animation clocks also tick at 1 s/s; some reset every few seconds and can be smaller than the song timer. One is dangerous: the double at `+0x8` of an object with type pointer `0x1017F8D60` restarts when a song is **picked** (before the tuner), so it runs a little ahead of the song timer (0.3–1.4 s, depending on the time spent in the tuner), and it keeps ticking when paused and in menus. A banner once confirmed it (lag 0.29 s, the real timer's was 1.73 s). Never guess: confirm (below). |
 
 **Finding candidates (rate search)**:
 1. Snapshot every 8-byte-aligned double in [0.5, 1000] with the time it was read
@@ -141,11 +141,41 @@ The position in the playing song, which with the song file's tone timeline tells
    enough to skew a shared timestamp).
 3. ~16–21 candidates survive per round while a song plays. Pool them (up to 64).
 
-**Confirming which candidate is the song timer**: at a tone change the game shows a banner
-(Section 7). For each pool candidate, `value_now − (now − banner_seen) − change_time` is how far
+**Confirming which candidate is the song timer: the play record.** While a song plays, the
+game keeps a record of its audio play event (Wwise):
+
+```
++0x00  event name "Play_<SongKey>" as a 32-byte string (Section 4), e.g. "Play_NoteAmaz"
++0x20  float  song position, seconds
++0x24  int32  song position, milliseconds
+```
+
+`SongKey` is the manifest's (`NoteAmaz`, `SelfTrap`: the game's capitalisation, not the file
+name's). The position advances only while the song plays and equals the song timer (same value to
+the millisecond in a capture). Older records of the same song linger with their position frozen
+(the position at a pause or when the song was left), so a record counts only if its milliseconds
+advance (+200…400 ms over 300 ms) and float and int agree. `"Play_<SongKey>_Preview"` (the
+song list's preview) is excluded by matching the name with its terminating 0. Names of 16
+characters or more are stored on the heap (the record's first word points to the text), found by
+searching for pointers to the text. Found in tag 7 memory.
+
+The dylib searches for the live record every 3 s from when the arrangement is picked until the
+song plays (a narrow text scan, ~0.2–0.3 s), then takes the pool candidate equal to its position
+(within 0.1 s; measured 0.001 s). With a timer already confirmed it checks that one instead and
+drops it if it disagrees. It does this once per song, so songs without tone changes get a timer
+within a few seconds of the song starting, and a freed timer or the decoy above is replaced.
+
+**Confirming by banner** (songs with tone changes; also before a play record is found): at a
+tone change the game shows a banner (Section 7). For each pool candidate, `value_now − (now − banner_seen) − change_time` is how far
 it is from the song position at the banner; the song timer gives a small lag (the scan delay). The
 dylib accepts −0.5…+5.0 s (rstone −0.5…+3.5 s) and takes the candidate with the smallest lag.
 Measured lags 0.2–3.1 s (higher on the first session, when scans are still full).
+
+**What did not work as a reference**: the song's audio. When the song starts, the game reads
+its `audio/mac/<id>.wem` entry on a new descriptor ~3.1 s after the `.sng` read (DLC; on-disc
+songs read their audio elsewhere), but the song timer then already reads 3.4–4.5 s, differing per
+song (probably Wwise's prefetch: the first seconds play from the sound bank). Pausing closes that
+descriptor and resuming opens it again.
 
 **Verifying later**: when a banner appears for a confirmed timer, the timer's tone at
 `value − 0…5 s` must be the banner's tone; if not, drop it and search again.
@@ -245,6 +275,7 @@ compared with the screen. RockSniffer's arrangement path string (`+0x1D0`) was n
 |---|---|
 | arrangement objects | **2** (`VM_MEMORY_MALLOC_SMALL`), **7** (`VM_MEMORY_MALLOC_TINY`) |
 | song timer | **2** |
+| play record (`Play_<SongKey>`) | **7** |
 | tone banners | **2** |
 
 Scanning only tags 2 + 7 is ~400–500 MB instead of ~2.5 GB, 4–5× faster. The dylib does not
@@ -337,4 +368,6 @@ the game's file reads, arrangement objects, timer, decoy clocks and banners.
 - **More of RockSniffer's values**: its game stage string (which screen the game is on) and its
   `Play_<songid>_Preview` sound event text (the highlighted song) are plain text; `ctx.py` finds
   them.
-- **The game's audio position** (Wwise) as a second timer source.
+- **The play record as the timer itself**: its int32 milliseconds (Section 6) could replace the
+  double, but whether one record lives for the whole song (across pauses and restarts) is not
+  checked; it is used only to confirm the double.

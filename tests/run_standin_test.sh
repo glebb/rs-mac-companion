@@ -19,7 +19,7 @@ STANDIN=$!
 RS_COMPANION_DATA="$DATA" python3 -u rstone.py --process rs-standin --arrangement selftrap_rhythm \
   --no-index-refresh --no-open --port 8799 --log "$DATA/test.log" > "$OUT" 2>/dev/null &
 RSTONE=$!
-trap 'kill $RSTONE $STANDIN 2>/dev/null; wait 2>/dev/null; rm -rf "$DATA"' EXIT
+trap 'kill $RSTONE $STANDIN 2>/dev/null || true; wait 2>/dev/null; rm -rf "$DATA"' EXIT
 
 sleep 68
 

@@ -7,6 +7,8 @@
   "arrangement_name_offset": "0x18",
   "arrangement_tones_offset": "0x178",
   "arrangement_tone_stride": "0x20",
+  "play_record_position_offset": "0x20",
+  "play_record_ms_offset": "0x24",
   "note_stats_vtable": "0x1017F92C0",
   "note_stats_marker_offset": "0xC",
   "note_stats_hits_offset": "0x40",

@@ -27,7 +27,7 @@ AUDIO=$(build/rstool toc "$ARCHIVE" | awk '$4 ~ /\.wem$/ {print $1; exit}')
 DATA=$(mktemp -d /tmp/rsc.XXXXXX)  # short: socket paths are limited to 104 characters
 APP_BIN="app/build/RS Companion.app/Contents/MacOS/RSCompanion"
 APP= MONITOR= STANDIN=
-trap 'kill $APP $MONITOR $STANDIN 2>/dev/null; wait 2>/dev/null; rm -rf "$DATA"' EXIT
+trap 'kill $APP $MONITOR $STANDIN 2>/dev/null || true; wait 2>/dev/null; rm -rf "$DATA"' EXIT
 
 python3 - "$DATA/presets.json" <<'EOF'
 import json, sys

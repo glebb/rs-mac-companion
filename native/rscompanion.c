@@ -9,8 +9,10 @@
 //    a working copy); found by its type pointer (game_profile.json's arrangement_vtable), and
 //    only names of the song just loaded count.
 // 3. Song timer: a double that advances 1 s per second while the song plays. Candidates are
-//    found by rate; the game's tone banner ("<Song> - <Tone tags>") at a tone change picks the
-//    one whose value matches the song file's change time. It is one object per game session.
+//    found by rate; the game's play record ("Play_<SongKey>" with the song position) picks the
+//    one equal to the position, once per song (also checking a timer kept from earlier songs),
+//    or, before that, the game's tone banner ("<Song> - <Tone tags>") at a tone change picks the
+//    one whose value matches the song file's change time.
 // 4. Tone: the slot active at timer + lead time (rscompanion.json, default 100 ms) per the
 //    song's timeline, checked 20 times a second.
 // 5. Events go to the companion app over a Unix datagram socket (see the events section).
@@ -49,6 +51,8 @@
 #define IMAGE_BASE 0x100000000ULL
 #define ARRANGEMENT_VTABLE 0x1017F8C20ULL
 #define ARR_NAME 0x18
+#define PLAY_POS 0x20    // play record: position, float seconds
+#define PLAY_MS 0x24     // play record: position, int32 milliseconds
 
 #define OUR_TAG 250      // VM tag of our own buffers (application-specific tags are 240..255)
 #define CHUNK (1 << 20)
@@ -97,6 +101,7 @@ static int ends_with(const char *s, const char *suffix) {
 
 typedef struct {
     char name[128];                 // e.g. "skid18an_lead"
+    char song_key[128];             // manifest SongKey, e.g. "Skid18an" (names the play record)
     char song[256], artist[256];
     char slots[5][128];             // tone keys for Base, A..D ("" if unused)
     rs_tone_def tones[MAX_TONES];
@@ -299,6 +304,7 @@ static song *load_song(rs_psarc *p, const char *key) {
             if (json) {
                 rs_json_str(json, "SongName", a->song, sizeof a->song);
                 rs_json_str(json, "ArtistName", a->artist, sizeof a->artist);
+                rs_json_str(json, "SongKey", a->song_key, sizeof a->song_key);
                 for (int k = 0; k < 5; k++) rs_json_str(json, slot_keys[k], a->slots[k], sizeof a->slots[k]);
                 a->ntones = rs_json_tones(json, a->tones, MAX_TONES);
                 free(json);
@@ -429,8 +435,8 @@ static int tag_of(uint64_t addr) {
     return a <= addr && addr < a + s ? (int)info.user_tag : -1;
 }
 
-enum { TAGS_ARRANGEMENT, TAGS_BANNER, TAGS_TIMER, NTAGS };
-static const char *TAG_NAMES[NTAGS] = {"arrangement", "banner", "timer"};
+enum { TAGS_ARRANGEMENT, TAGS_BANNER, TAGS_TIMER, TAGS_PLAY, NTAGS };
+static const char *TAG_NAMES[NTAGS] = {"arrangement", "banner", "timer", "play"};
 static tagset g_tags[NTAGS];
 static pthread_mutex_t g_tags_lock = PTHREAD_MUTEX_INITIALIZER;
 static char g_tags_file[1024];
@@ -886,6 +892,20 @@ static void config_poll(void) {
 
 // ================================================================ searcher: arrangement + timer
 
+// Text search: every address of pat (plen bytes) in a chunk, up to 300.
+typedef struct { char pat[300]; size_t plen; uint64_t hits[300]; int n; } banner_search;
+
+static int find_text(uint64_t base, const uint8_t *d, size_t len, void *ctx) {
+    banner_search *bs = ctx;
+    const uint8_t *p = d, *end = d + len;
+    while (p < end && (p = memmem(p, (size_t)(end - p), bs->pat, bs->plen))) {
+        bs->hits[bs->n++] = base + (uint64_t)(p - d);
+        if (bs->n == 300) return 0;
+        p++;
+    }
+    return 1;
+}
+
 // Song timer search (doubles in seconds). Each candidate keeps its value and the moment it was
 // read, so a pass compares each value against its own elapsed time.
 typedef struct { uint64_t *a; float *v; float *t; size_t n, cap; } tset;
@@ -996,11 +1016,141 @@ static void timer_search(uint8_t *buf, unsigned gen) {
     ts_free();
 }
 
+// ================================================================ play record
+
+// While a song plays, the game keeps a record of its audio play event: the event name
+// "Play_<SongKey>" as a 32-byte string (inline or on the heap), then the song position as float
+// seconds (+PLAY_POS) and int32 milliseconds (+PLAY_MS). Copies from earlier plays linger with
+// their position frozen, so only a record whose milliseconds advance counts. The song timer
+// equals its position; this confirms the timer in songs without tone changes and checks it in
+// every song (a confirmed timer can be freed, and a clock started with the song can pass the
+// banner check).
+#define PLAY_RECS 32
+typedef struct { uint64_t want[PLAY_RECS], lo, hi; int nwant; uint64_t hits[PLAY_RECS]; int n; } ptrs_search;
+
+static int find_ptrs(uint64_t base, const uint8_t *d, size_t len, void *ctx) {
+    ptrs_search *ps = ctx;
+    for (size_t i = 0; i + 8 <= len; i += 8) {
+        uint64_t v;
+        memcpy(&v, d + i, 8);
+        if (v < ps->lo || v > ps->hi) continue;
+        for (int j = 0; j < ps->nwant; j++)
+            if (v == ps->want[j]) {
+                ps->hits[ps->n++] = base + i;
+                if (ps->n == PLAY_RECS) return 0;
+                break;
+            }
+    }
+    return 1;
+}
+
+// Position (ms) in the record at a whose name is the len-byte text at text, or -1.
+static int32_t play_ms(uint64_t a, uint64_t text, size_t len) {
+    uint8_t r[PLAY_MS + 4];
+    if (!safe_read(a, r, sizeof r)) return -1;
+    uint64_t first, end;
+    float pos;
+    int32_t ms;
+    memcpy(&first, r, 8);
+    memcpy(&end, r + 0x10, 8);
+    memcpy(&pos, r + PLAY_POS, 4);
+    memcpy(&ms, r + PLAY_MS, 4);
+    if (end != text + len || (text != a && first != text)) return -1;
+    double diff = pos * 1000.0 - ms;
+    return ms >= 0 && ms < 100000000 && diff > -2 && diff < 2 ? ms : -1;
+}
+
+// The position of the live play record of song_key in seconds (read just now), or -1 (the song
+// is not playing: not started yet, paused, or left).
+static double play_position(uint8_t *buf, banner_search *bs, ptrs_search *ps, const char *song_key) {
+    static unsigned round;
+    snprintf(bs->pat, sizeof bs->pat, "Play_%s", song_key);
+    size_t len = strlen(bs->pat);
+    bs->plen = len + 1;  // with the terminating 0, so not "Play_<key>_Preview"
+    bs->n = 0;
+    tagset tags;
+    const tagset *only = round++ % 5 != 4 ? tags_for(TAGS_PLAY, &tags) : NULL;
+    scan(buf, only, find_text, bs);
+    uint64_t recs[PLAY_RECS], texts[PLAY_RECS];
+    int n = 0;
+    ps->nwant = 0;
+    for (int i = 0; i < bs->n; i++) {
+        if (len < 16 && n < PLAY_RECS) recs[n] = texts[n] = bs->hits[i], n++;  // inline: the record starts with it
+        else if (len >= 16 && ps->nwant < PLAY_RECS) ps->want[ps->nwant++] = bs->hits[i];
+    }
+    if (ps->nwant) {  // on the heap: records point to the text
+        ps->lo = ~0ULL, ps->hi = 0, ps->n = 0;
+        for (int j = 0; j < ps->nwant; j++) {
+            if (ps->want[j] < ps->lo) ps->lo = ps->want[j];
+            if (ps->want[j] > ps->hi) ps->hi = ps->want[j];
+        }
+        scan(buf, only, find_ptrs, ps);
+        for (int i = 0; i < ps->n && n < PLAY_RECS; i++)
+            if (safe_read(ps->hits[i], &texts[n], 8)) recs[n++] = ps->hits[i];
+    }
+    int32_t ms0[PLAY_RECS];
+    for (int i = 0; i < n; i++) ms0[i] = play_ms(recs[i], texts[i], len);
+    usleep(300000);
+    for (int i = 0; i < n; i++) {
+        int32_t ms1 = ms0[i] < 0 ? -1 : play_ms(recs[i], texts[i], len);
+        if (ms1 - ms0[i] < 200 || ms1 - ms0[i] > 400) continue;
+        tags_learn(TAGS_PLAY, recs[i]);
+        if (texts[i] != recs[i]) tags_learn(TAGS_PLAY, texts[i]);
+        return ms1 / 1000.0;
+    }
+    return -1;
+}
+
+// Checks the song timer against the live play record: keeps a confirmed timer that agrees,
+// drops one that doesn't, and confirms a pool candidate equal to the play position.
+// 1 = timer confirmed and checked, 0 = no live record, -1 = no candidate matches yet.
+static int play_check(uint8_t *buf, banner_search *bs, ptrs_search *ps, unsigned gen, const char *song_key) {
+    double pos = play_position(buf, bs, ps, song_key);
+    if (pos < 0) return 0;
+    uint64_t pool[POOL];
+    pthread_mutex_lock(&g_state_lock);
+    int confirmed = g_confirmed, n = g_npool;
+    uint64_t timer = g_timer;
+    memcpy(pool, g_pool, sizeof pool);
+    pthread_mutex_unlock(&g_state_lock);
+    double v;
+    if (confirmed) {
+        if (read_timer(timer, &v) && v - pos <= 0.1 && pos - v <= 0.1) {
+            logline("song timer checked: %.2f s, the game's play position %.2f s", v, pos);
+            return 1;
+        }
+        logline("song timer at %llx is not the song's (play position %.2f s); searching again", (unsigned long long)timer,
+                pos);
+        pthread_mutex_lock(&g_state_lock);
+        if (g_timer == timer) g_confirmed = 0, g_timer = 0;
+        pthread_mutex_unlock(&g_state_lock);
+    }
+    uint64_t best = 0;
+    double best_d = 0.1;
+    for (int c = 0; c < n; c++) {
+        if (!read_timer(pool[c], &v)) continue;
+        double d = v > pos ? v - pos : pos - v;
+        if (d <= best_d) best_d = d, best = pool[c];
+    }
+    if (!best) return -1;
+    pthread_mutex_lock(&g_state_lock);
+    int ok = g_arr_gen == gen && !g_confirmed;
+    if (ok) g_timer = best, g_confirmed = 1;
+    pthread_mutex_unlock(&g_state_lock);
+    if (!ok) return 0;
+    logline("play record: song timer is the double at %llx (play position %.2f s, off by %.3f s)",
+            (unsigned long long)best, pos, best_d);
+    tags_learn(TAGS_TIMER, best);
+    return 1;
+}
+
 static void *searcher(void *arg) {
     (void)arg;
     uint8_t *buf = own_alloc(CHUNK);
-    unsigned seen_song_gen = 0, tries_gen = 0, tries = 0;
-    double last_arr_check = 0;
+    banner_search *bs = own_alloc(sizeof *bs);  // patterns live in our tagged memory
+    ptrs_search *ps = own_alloc(sizeof *ps);
+    unsigned seen_song_gen = 0, tries_gen = 0, tries = 0, checked_gen = 0, live_gen = 0;
+    double last_arr_check = 0, selected_at = 0, last_play_check = 0, live_at = 0;
     for (;;) {
         pthread_mutex_lock(&g_state_lock);
         unsigned song_gen = g_song_gen;
@@ -1008,8 +1158,9 @@ static void *searcher(void *arg) {
         char key[128] = "";
         if (g_song) snprintf(key, sizeof key, "%s", g_song->key);
         int have = g_have_arr, confirmed = g_confirmed, changes = g_arr.nch;
-        char cur[128];
+        char cur[128], song_key[128];
         snprintf(cur, sizeof cur, "%s", g_arr.name);
+        snprintf(song_key, sizeof song_key, "%s", g_arr.song_key);
         unsigned arr_gen = g_arr_gen;
         pthread_mutex_unlock(&g_state_lock);
 
@@ -1043,6 +1194,8 @@ static void *searcher(void *arg) {
                     if (!g_confirmed) g_npool = 0;
                     g_nbanners = 0;
                     changes = a->nch;
+                    snprintf(song_key, sizeof song_key, "%s", a->song_key);
+                    selected_at = now_s();
                 }
                 pthread_mutex_unlock(&g_state_lock);
                 if (a) {
@@ -1052,8 +1205,24 @@ static void *searcher(void *arg) {
                 }
             }
         }
-        // Only arrangements with tone changes need the timer (and only they show banners to lock it).
-        if (have && !confirmed && changes > 0 && song_gen == seen_song_gen) {
+        // Each song: check the timer against the game's play record, every 3 s from when the
+        // arrangement is picked until the song plays (up to 10 minutes).
+        t = now_s();
+        if (have && song_gen == seen_song_gen && checked_gen != arr_gen && song_key[0] && t - selected_at < 600 &&
+            t - last_play_check >= 3) {
+            last_play_check = t;
+            int r = play_check(buf, bs, ps, arr_gen, song_key);
+            if (r == 1) checked_gen = arr_gen;
+            if (r < 0) live_gen = arr_gen, live_at = now_s();
+            pthread_mutex_lock(&g_state_lock);
+            confirmed = g_confirmed;
+            pthread_mutex_unlock(&g_state_lock);
+        }
+        // The rate search fills the candidate pool: for arrangements with tone changes (a banner
+        // or the play record confirms), and for others while the play record shows the song
+        // playing without a matching candidate.
+        int playing = live_gen == arr_gen && now_s() - live_at < 30;
+        if (have && !confirmed && (changes > 0 || playing) && song_gen == seen_song_gen) {
             timer_search(buf, arr_gen);
             continue;
         }
@@ -1066,18 +1235,6 @@ static void *searcher(void *arg) {
 
 // New copies of "<Song> - " in memory are the game's tone banners.
 #define SEEN_CAP (1 << 16)
-typedef struct { char pat[300]; size_t plen; uint64_t hits[300]; int n; } banner_search;
-
-static int find_text(uint64_t base, const uint8_t *d, size_t len, void *ctx) {
-    banner_search *bs = ctx;
-    const uint8_t *p = d, *end = d + len;
-    while (p < end && (p = memmem(p, (size_t)(end - p), bs->pat, bs->plen))) {
-        bs->hits[bs->n++] = base + (uint64_t)(p - d);
-        if (bs->n == 300) return 0;
-        p++;
-    }
-    return 1;
-}
 
 static void *banner_watch(void *arg) {
     (void)arg;
