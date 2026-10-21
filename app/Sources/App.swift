@@ -29,13 +29,28 @@ struct RSCompanionApp: App {
 struct CompanionView: View {
     @ObservedObject var companion: Companion
     @State private var showSettings = false
+    @State private var contentHeight: CGFloat = 0
 
     var body: some View {
-        if showSettings {
-            SettingsView(companion: companion) { showSettings = false }
-        } else {
-            main
+        // The panel can't be taller than the screen: past that, scroll.
+        ScrollView(.vertical) {
+            Group {
+                if showSettings {
+                    SettingsView(companion: companion) { showSettings = false }
+                } else {
+                    main
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
         }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(width: 320, height: min(contentHeight, maxHeight))
+    }
+
+    /// The visible screen height less room for the menu bar gap and the panel's edges.
+    private var maxHeight: CGFloat {
+        (NSScreen.main?.visibleFrame.height ?? 800) - 20
     }
 
     private var main: some View {
