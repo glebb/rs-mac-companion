@@ -34,7 +34,7 @@ game's own threads except a few counters in the file-call interposers.
 |---|---|
 | interposers (game threads) | `open`, `openat`, `fopen`, `close`, `fclose`, `fread`, `read`, `pread` are interposed with dyld `__interpose`. For `.psarc` files they remember the path per descriptor and queue `(path, offset)` of each read. Never block, never read files themselves. |
 | **worker** | Maps queued reads to archive entries (cached tables of contents). A read in a `songs/bin/macos/<key>_<part>.sng` entry means the game is loading song `<key>`: reads every arrangement's manifest and tone timeline from that archive (1–5 ms). Reads within 10 s of the same song count as one load. |
-| **searcher** | After each song load: finds the selected arrangement (object that exists twice) every second for up to 2 minutes until found. Until the song timer is confirmed: rate-searches for timer candidates. |
+| **searcher** | After each song load: finds the selected arrangement (object that exists twice) every second for up to 2 minutes until found. Then, once per song, finds the game's live play record (`Play_<SongKey>` with the song position) every 3 s until the song plays: confirms the timer candidate equal to its position, or checks (and if wrong, drops) a confirmed timer. Rate-searches for timer candidates while unconfirmed: for arrangements with tone changes, and for others while the play record shows the song playing. |
 | **banner watch** | Finds new `"<Song> - <Tags>"` banners: continuously until the timer is confirmed, afterwards only just after each expected change and every 15 s. |
 | **tracker** | 20 times a second: emits events, confirms the timer with banners, follows the active slot at `timer + lead`, sends a heartbeat every second, re-reads settings. |
 
@@ -177,7 +177,7 @@ of the game executable. `tools/add_load_dylib.py` does step 3 by hand for any ex
 | Test | Covers |
 |---|---|
 | `tests/run_standin_test.sh` | rstone.py + rsprobe against `tests/standin.c` (timer, decoys, banners) |
-| `tests/run_dylib_test.sh` | the dylib inside `tests/standin_dylib.c`, which reads the game's own `songs.psarc` (the song *Self Trap*) like the game and holds arrangement objects (including a stale pair), a timer, decoy clocks and banners; events checked on the socket; two runs (learning, then narrow scans with a 500 ms lead) |
+| `tests/run_dylib_test.sh` | the dylib inside `tests/standin_dylib.c`, which reads the game's own `songs.psarc` (the song *Self Trap*) like the game and holds arrangement objects (including a stale pair), a timer, decoy clocks and banners; events checked on the socket; three runs (learning, then narrow scans with a 500 ms lead, then an arrangement without tone changes whose timer the play record locks) |
 | `tests/run_app_test.sh` | stand-in → dylib → app → MIDI (`tools/midi_monitor.swift`), with a song override, a live `presets.json` edit, custom MIDI settings and a restart catch-up |
 | `tests/run_installer_test.sh` | the installer on a copy of the game executable: fresh install, repeat, prototype migration, update, uninstall back to the original bytes, missing game |
 
