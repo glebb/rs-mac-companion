@@ -237,7 +237,7 @@ Build with `./build.sh` (Command Line Tools only): `build/rsprobe`, `build/rstoo
 | `build/midi_monitor` | print MIDI from the "Rocksmith Companion" source (`swiftc -O tools/midi_monitor.swift -o build/midi_monitor`) |
 | `tools/add_load_dylib.py` | add a library load to an executable by hand (the app's installer does the same) |
 | `"RS Companion.app/Contents/MacOS/RSCompanion" --game-status \| --install-game \| --uninstall-game [folder]` | the app's installer without its window |
-| `tools/discovery/` | investigating the game's memory through `rsprobe` (needs Developer Mode); see [game-memory.md](docs/game-memory.md#11-finding-something-new) |
+| `tools/discovery/` | investigating the game's memory through `rsprobe` (needs Developer Mode); see [game-memory.md](docs/game-memory.md#12-finding-something-new) |
 
 Tests (none touch your data; they need the game installed, and use the song *Self Trap* that comes
 with it):

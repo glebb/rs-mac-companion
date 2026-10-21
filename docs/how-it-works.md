@@ -39,7 +39,7 @@ game's own threads except a few counters in the file-call interposers.
 | **tracker** | 20 times a second: emits events, confirms the timer with banners, follows the active slot at `timer + lead`, sends a heartbeat every second, re-reads settings. |
 
 Memory searches learn which memory tags hold what they look for and scan only those
-(`rscompanion_tags.txt`); see [game-memory.md § 8](game-memory.md#8-where-things-live-memory-tags).
+(`rscompanion_tags.txt`); see [game-memory.md § 9](game-memory.md#9-where-things-live-memory-tags).
 
 ### Events (dylib → app)
 
@@ -164,7 +164,7 @@ of the game executable. `tools/add_load_dylib.py` does step 3 by hand for any ex
 
 - **rsprobe** (`native/rsprobe.c`) attaches to the game and answers line commands over a Unix
   socket: read bytes, search for bytes or pointers, int snapshots, a timer search. It only scans
-  writable data. The discovery tools use it too ([game-memory.md § 11](game-memory.md#11-finding-something-new)).
+  writable data. The discovery tools use it too ([game-memory.md § 12](game-memory.md#12-finding-something-new)).
 - **rstool** (`native/rstool.c` on `native/rsfile.c`) prints each arrangement of an archive as
   one JSON line; **index_songs.py** runs it over all archives (50 per run, ~10 s for ~2,400) and
   caches results by file size and date.

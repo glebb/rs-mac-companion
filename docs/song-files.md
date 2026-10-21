@@ -16,7 +16,7 @@ In the game folder (`~/Library/Application Support/Steam/steamapps/common/Rocksm
   ~150 songs; custom packs).
 - File names don't reliably name the song: only ~14% of DLC arrangements have the song key in the
   file name. Read the archive's table of contents, or watch which file the game reads
-  ([game-memory.md](game-memory.md#9-what-the-game-does-with-its-files)).
+  ([game-memory.md](game-memory.md#10-what-the-game-does-with-its-files)).
 
 ## .psarc archives
 

@@ -6,5 +6,19 @@
   "arrangement_vtable": "0x1017F8C20",
   "arrangement_name_offset": "0x18",
   "arrangement_tones_offset": "0x178",
-  "arrangement_tone_stride": "0x20"
+  "arrangement_tone_stride": "0x20",
+  "note_stats_vtable": "0x1017F92C0",
+  "note_stats_marker_offset": "0xC",
+  "note_stats_hits_offset": "0x40",
+  "note_stats_streak_offset": "0x44",
+  "note_stats_best_streak_offset": "0x4C",
+  "note_stats_misses_offset": "0x50",
+  "note_stats_miss_streak_offset": "0x54",
+  "score_attack_vtable": "0x10180A388",
+  "score_attack_hits_offset": "0x68",
+  "score_attack_misses_offset": "0x6C",
+  "score_attack_perfect_hits_offset": "0x94",
+  "score_attack_late_hits_offset": "0x9C",
+  "score_attack_score_offset": "0x118",
+  "score_attack_multiplier_offset": "0x11C"
 }

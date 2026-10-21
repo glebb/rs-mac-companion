@@ -20,11 +20,12 @@ Contents:
 5. [Arrangement description objects (which song and part)](#5-arrangement-description-objects)
 6. [The song timer](#6-the-song-timer)
 7. [Tone banners](#7-tone-banners)
-8. [Where things live: memory tags](#8-where-things-live-memory-tags)
-9. [What the game does with its files](#9-what-the-game-does-with-its-files)
-10. [What did not work](#10-what-did-not-work)
-11. [Finding something new](#11-finding-something-new)
-12. [Ideas not explored yet](#12-ideas-not-explored-yet)
+8. [Note statistics (hits, streaks, score)](#8-note-statistics)
+9. [Where things live: memory tags](#9-where-things-live-memory-tags)
+10. [What the game does with its files](#10-what-the-game-does-with-its-files)
+11. [What did not work](#11-what-did-not-work)
+12. [Finding something new](#12-finding-something-new)
+13. [Ideas not explored yet](#13-ideas-not-explored-yet)
 
 ## 1. The process
 
@@ -49,7 +50,7 @@ Contents:
 | Needs | the `com.apple.security.cs.debugger` entitlement and Developer Mode / `_developer` group (or an admin prompt) | the game patched to load the dylib (Section 1); no permissions at all |
 | Cost | every byte is copied across processes (~2.5 GB per full scan, 1–2 s) | same copy but in-process (~0.8–1.2 s full, ~0.2 s narrow) |
 | Risk | none to the game | a crash in the dylib crashes the game: keep it defensive |
-| Game files | separate reader (`index_songs.py` + `rstool`) | sees the game's own file reads (Section 9) |
+| Game files | separate reader (`index_songs.py` + `rstool`) | sees the game's own file reads (Section 10) |
 
 Why `mach_vm_read_overwrite` even in-process: the game frees and unmaps memory while we scan. A
 plain pointer dereference into a page unmapped a moment ago would crash the game; the Mach call
@@ -61,7 +62,7 @@ Both readers enumerate regions with `mach_vm_region` and scan only regions that 
 and writable and not executable** (data, never code), in 1 MB chunks copied into a buffer.
 
 The dylib uses `VM_REGION_EXTENDED_INFO`, which also gives each region's **user tag** (what kind
-of memory it is, Section 8) and resident/swapped page counts. It skips:
+of memory it is, Section 9) and resident/swapped page counts. It skips:
 
 - regions with no resident or swapped pages (reserved but never touched),
 - **its own memory**, so it never finds copies of what it searches for:
@@ -114,10 +115,10 @@ that appears twice. For *18 And Life* this finds 7 objects: its 6 arrangements p
 Caveats:
 - The copy **stays after leaving the song**, so it is "last selected", not "selected now". The
   dylib therefore only accepts a duplicate whose name starts with the key of the song the game
-  has just loaded (`<songkey>_…`, Section 9); a stale pair from the previous song is ignored.
+  has just loaded (`<songkey>_…`, Section 10); a stale pair from the previous song is ignored.
 - RS1-compatibility songs have a `*_combo` arrangement; picking "Lead" selects
   `boysdontcry_combo`, not `boysdontcry_lead` (same tone data).
-- The objects are in memory tagged 2 and 7 (Section 8).
+- The objects are in memory tagged 2 and 7 (Section 9).
 - The name is also the key into the song files: `songs/bin/macos/<name>.sng` and
   `manifests/…/<name>.json` (see [song-files.md](song-files.md)).
 
@@ -165,7 +166,7 @@ At each tone change the game creates the on-screen text **`"<SongName> - <Tags>"
 - Each change creates **new copies** (usually 3) of the string; older copies linger until the
   memory is reused, so only **addresses not seen before** count as new banners. Note the
   addresses present when a song starts and ignore them.
-- Found in memory tagged 2 (Section 8). They come from the game's `LASToneChangeNotification`
+- Found in memory tagged 2 (Section 9). They come from the game's `LASToneChangeNotification`
   UI notification.
 - A banner can be found up to ~1 s after the change (scan interval + scan time).
 
@@ -177,7 +178,66 @@ also catch tone changes a timeline would miss, but they are late and need a sear
 confirm the timer, then rely on the timer. To keep scanning cheap once confirmed, the dylib only
 looks for banners just after each expected change (0.3–3 s after it) and every 15 s.
 
-## 8. Where things live: memory tags
+## 8. Note statistics
+
+The game counts hits, misses and streaks in two typed objects, the same ones RockSniffer
+([kokolihapihvi/RockSnifferLib](https://github.com/kokolihapihvi/RockSnifferLib),
+`LearnASongNoteData` / `ScoreAttackNoteData`) reads on Windows. Its pointer chains don't carry
+over, but its struct layouts do: the fields come in the same order, shifted because pointers are
+8 bytes here. Both objects hold the int32 **`111000`** at `+0x0C` (RockSniffer's validity check,
+`+0x08` on Windows), which is how they were found: snapshot every 111000 in memory every 3 s
+while playing, and compare.
+
+Both are **created when a song starts and freed when it is left**; at the menu neither exists.
+After freeing, the 111000 lingers in the freed memory for a while: find the objects by **type
+pointer** (`findptr`), never by the marker alone. All int32.
+
+**Note stats** (Learn a Song **and** Score Attack), type pointer **`0x1017F92C0`** + slide:
+
+| Offset | Content | Windows |
+|---|---|---|
+| `+0x00` | type pointer | `+0x00` |
+| `+0x0C` | `111000` | `+0x08` |
+| `+0x40` | notes hit | `+0x30` |
+| `+0x44` | current hit streak | `+0x34` |
+| `+0x48` | unknown (1 in every song seen) | `+0x38` |
+| `+0x4C` | highest hit streak | `+0x3C` |
+| `+0x50` | notes missed | `+0x40` |
+| `+0x54` | current miss streak | `+0x44` |
+| `+0x5C` | notes hit (again) | |
+
+Accuracy = hit / (hit + missed), as RockSniffer computes it. Seen in three songs (two Learn a
+Song, one Score Attack), found by type pointer in two of them: hits rose while playing cleanly,
+the streak fell to 0–2 while missing on purpose and the highest streak held, misses rose only
+while missing. Further counters at `+0x140…+0x160` grew slowly (phrase or section statistics?);
+not identified.
+
+**Score Attack stats** (only in Score Attack, alongside the note stats), type pointer
+**`0x10180A388`** + slide:
+
+| Offset | Content | Windows | Seen at the end |
+|---|---|---|---|
+| `+0x00` | type pointer | `+0x00` | |
+| `+0x0C` | `111000` | `+0x08` | |
+| `+0x58` / `+0x5C` | current hit / miss streak | `+0x3C` / `+0x40` | 36 / 0 |
+| `+0x60` / `+0x64` | highest hit / miss streak | `+0x44` / `+0x48` | 38 / 4 |
+| `+0x68` / `+0x6C` | notes hit / missed | `+0x4C` / `+0x50` | 239 / 38 |
+| `+0x70` / `+0x74` | current hit / miss streak (again) | `+0x54` / `+0x58` | |
+| `+0x90` / `+0x94` | current perfect-hit streak / perfect hits | `+0x74` / `+0x78` | 0 / 57 |
+| `+0x98` / `+0x9C` | current late-hit streak / late hits | `+0x7C` / `+0x80` | 1 / 8 |
+| `+0xA0…+0xAC` | perfect, good, passed, failed phrases | `+0x84…+0x90` | 3, 6, 0, 1 |
+| `+0xB0…+0xBC` | current phrase streaks (same order) | `+0x94…+0xA0` | 2, 0, 0, 0 |
+| `+0xC0…+0xCC` | highest phrase streaks (same order) | `+0xA4…+0xB0` | 2, 5, 0, 1 |
+| `+0x118` | score | `+0xE4` | 80,856 |
+| `+0x11C` / `+0x120` | current / highest multiplier | `+0xE8` / `+0xEC` | 8 / 8 |
+
+The hit/miss fields matched the note stats object at every snapshot. The phrase counts add up to
+10, which also appears at `+0x148` and `+0x1D8`. Seen in one Score Attack song, found by the
+marker (the type pointer was read from that object afterwards, not yet searched for); the perfect,
+late, phrase and score fields follow RockSniffer's layout and give plausible values, but were not
+compared with the screen. RockSniffer's arrangement path string (`+0x1D0`) was not looked for.
+
+## 9. Where things live: memory tags
 
 `mach_vm_region` reports a **user tag** per region (`<mach/vm_statistics.h>`). Measured:
 
@@ -192,7 +252,7 @@ hard-code these: each search starts with full scans, learns the tags of what it 
 (`rscompanion_tags.txt` in the data folder) and from then on scans only those, with a full scan
 every 5th try (every 10th banner scan until the timer is confirmed) in case something moved.
 
-## 9. What the game does with its files
+## 10. What the game does with its files
 
 Seen by interposing the libc file calls inside the game (Section 2; `my_fopen`, `my_fread` … in
 `rscompanion.c`). The game uses **`fopen` + `fseeko` + `fread`** (64 KB reads), not `mmap` or
@@ -216,7 +276,7 @@ together): that comes from memory (Section 5).
 
 The DLC startup scan reads no `.sng` entries, so it never triggers a false song detection.
 
-## 10. What did not work
+## 11. What did not work
 
 | Tried | Result |
 |---|---|
@@ -228,7 +288,7 @@ The DLC startup scan reads no `.sng` entries, so it never triggers a false song 
 | Reading the selected arrangement every 5–10 s | Works, but costs ~12% of a core; re-checking only when the game loads a song is enough. |
 | A song reader without size limits on a corrupt custom song | An earlier reader allocated until the Mac ran out of memory. `rsfile.c` caps sizes taken from files (64 MB). |
 
-## 11. Finding something new
+## 12. Finding something new
 
 The discovery tools work against the game from outside through `rsprobe`, so the investigation
 never risks the game. Start the reader (Developer Mode needed), then use the tools:
@@ -262,16 +322,19 @@ To try a finding inside the game, add it to the dylib and test it first against 
 ([tests/standin_dylib.c](../tests/standin_dylib.c), `tests/run_dylib_test.sh`), which imitates
 the game's file reads, arrangement objects, timer, decoy clocks and banners.
 
-## 12. Ideas not explored yet
+## 13. Ideas not explored yet
 
 - **Tones switched by hand** in the game are not seen (the timeline doesn't know them). The
   banner appears for those too, so a banner that disagrees with the timeline at a moment with no
   timeline change could be reported as a manual switch.
 - **Pause / end of song**: the timer stops when paused and jumps to 0 when the song is left;
   both could become events (e.g. "song stopped").
-- **The active tone slot directly**: the per-session int from Section 10 might be reachable
+- **The active tone slot directly**: the per-session int from Section 11 might be reachable
   from the arrangement object or another typed object; search for its address near objects
   found by type pointer (step 3 above) rather than from globals.
-- **Score, accuracy, section, riff repeater state**: likely in typed objects like the arrangement
-  objects; the method in Section 11 applies.
+- **Section, riff repeater state**: likely in typed objects like the arrangement and note stats
+  objects (Section 8); the method in Section 12 applies.
+- **More of RockSniffer's values**: its game stage string (which screen the game is on) and its
+  `Play_<songid>_Preview` sound event text (the highlighted song) are plain text; `ctx.py` finds
+  them.
 - **The game's audio position** (Wwise) as a second timer source.

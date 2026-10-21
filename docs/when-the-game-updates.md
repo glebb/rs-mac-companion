@@ -94,6 +94,10 @@ python3 probe.py findptr <hexaddr>        # who points at an address
 If the selected arrangement no longer appears twice, `current_arrangement()` in `rstone.py`
 needs another way to tell which one is selected.
 
+The `note_stats_*` and `score_attack_*` values are not used by rstone or the dylib yet. To
+re-derive them, play a song and look for the int32 111000 (`probe.py findhex 98b10100`): the
+type pointer is the 8-byte word 0xC before it ([game-memory.md § 8](game-memory.md#8-note-statistics)).
+
 ### 3. Is the song timer found?
 
 Log, while a song plays: `timer candidates +N`, and at the first tone change
