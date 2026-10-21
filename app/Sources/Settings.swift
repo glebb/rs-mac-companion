@@ -1,14 +1,17 @@
 import Foundation
 
-/// Settings in DATA_DIR/rscompanion.json, shared with the in-game dylib (which reads lead_ms
-/// and picks up changes within a second). Keys this app does not know are kept.
+/// Settings in DATA_DIR/rscompanion.json, shared with the in-game dylib (which reads lead_ms and
+/// overlay_enabled and picks up changes within a second). Keys this app does not know are kept.
 ///   {"lead_ms": 100, "midi_channel": 1, "programs": {"Clean": 0, "Crunch": 1, "Heavy": 2, "Lead": 3},
-///    "game_dir": "/path/to/Rocksmith2014"}     (game_dir only when not Steam's default)
+///    "game_dir": "/path/to/Rocksmith2014",     (only when not Steam's default)
+///    "overlay_enabled": false, "overlay_port": 9938}
 struct Settings: Equatable {
     var gameDir: String?            // the Rocksmith2014 folder, if not Steam's default
     var leadMs = 100
     var channel = 1                 // 1-16
     var programs = [0, 1, 2, 3]     // Program Change per category (Clean, Crunch, Heavy, Lead)
+    var overlayEnabled = false      // RockSniffer-compatible stream overlays (OverlayServer)
+    var overlayPort = 9938          // RockSniffer's default
 
     /// Common layouts: the four categories on Program Change 0-3 or 4-7 (e.g. two guitar
     /// channels of one device), or a number per category.
@@ -44,6 +47,8 @@ struct Settings: Equatable {
         if let v = json["game_dir"] as? String, !v.isEmpty { s.gameDir = v }
         if let v = json["lead_ms"] as? Int { s.leadMs = min(max(v, 0), 2000) }
         if let v = json["midi_channel"] as? Int { s.channel = min(max(v, 1), 16) }
+        if let v = json["overlay_enabled"] as? Bool { s.overlayEnabled = v }
+        if let v = json["overlay_port"] as? Int, (1024...65535).contains(v) { s.overlayPort = v }
         if let p = json["programs"] as? [String: Any] {
             for c in Category.allCases { if let v = p[c.name] as? Int { s.programs[c.rawValue] = min(max(v, 0), 127) } }
         }
@@ -56,6 +61,8 @@ struct Settings: Equatable {
         json["game_dir"] = gameDir
         json["lead_ms"] = leadMs
         json["midi_channel"] = channel
+        json["overlay_enabled"] = overlayEnabled
+        json["overlay_port"] = overlayPort
         json["programs"] = Dictionary(uniqueKeysWithValues: Category.allCases.map { ($0.name, programs[$0.rawValue]) })
         if let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: path), options: .atomic)

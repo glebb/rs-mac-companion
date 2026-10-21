@@ -12,7 +12,9 @@
 #     set in rscompanion.json,
 #   - run 3 (stand-in "notones": Self Trap's bass, no tone changes, no banners): the game's play
 #     record "Play_SelfTrap" locks the song timer within seconds of the song starting, ignoring a
-#     stale record and a clock started when the song was picked.
+#     stale record and a clock started when the song was picked. With overlay_enabled set in
+#     rscompanion.json for this run, the note-stats and Score Attack objects are found by type
+#     pointer (not the freed copy) and reported in stats events; runs 1-2 send none.
 # Needs the game installed (songs.psarc). Everything goes to a temporary folder, so your own data
 # is not touched.
 set -e
@@ -35,6 +37,7 @@ for RUN in 1 2 3; do
   LOG="$DATA/rscompanion.log" EVENTS="$DATA/events.jsonl"
   rm -f "$LOG" "$EVENTS"
   [ $RUN = 2 ] && echo '{"lead_ms": 500}' > "$DATA/rscompanion.json"
+  [ $RUN = 3 ] && echo '{"lead_ms": 500, "overlay_enabled": true}' > "$DATA/rscompanion.json"
   python3 tools/event_listener.py --socket "$DATA/events.sock" --out "$EVENTS" > /dev/null 2>&1 &
   LISTENER=$!
   sleep 1
@@ -66,6 +69,14 @@ if run == 3:
     # The song starts 5 s into the run; the run is 30 s, so the song is ~24 s in at the end.
     if first is None or first > 12 or not last.get("timer_locked") or not 22 <= (last.get("time") or 0) <= 26:
         problems.append("expected the timer locked within 12 s of the song start, at the song time")
+    stats = [e for e in events if e["event"] == "stats"]
+    last = stats[-1] if stats else {}
+    print(f"   {len(stats)} stats events; last: {last}")
+    # Objects from e = 5 s, one hit per second of song time; 4 events a second once found.
+    if len(stats) < 40 or last.get("mode") != "sa" or not 20 <= last.get("hits", 0) <= 26 \
+            or last.get("score") != last.get("hits", 0) * 100 or last.get("multiplier") != 1 \
+            or abs(last.get("time", 0) - last.get("hits", 0)) > 1.5 or any(e.get("hits") == 999 for e in stats):
+        problems.append("stats: expected Score Attack stats ~4/s with hits = song seconds, score = 100 per hit")
     lock = [i for i, l in enumerate(lines) if "play record: song timer is the double" in l]
     if not lock or any("timer search" in l for l in lines[lock[0] + 1:]):
         problems.append("expected a lock by the play record and no timer search after it")
@@ -108,6 +119,9 @@ print(f"   {len(states)} heartbeats; last: song {last.get('song')!r}, slot {last
 if not 50 <= len(states) <= 62 or last.get("protocol") != 1 or last.get("song") != "Self Trap" \
         or not last.get("timer_locked") or last.get("lead_ms") != (100 if run == 1 else 500):
     problems.append("heartbeats: expected ~1 per second, ending with the song, a locked timer and the lead time")
+
+if any(e["event"] == "stats" for e in events):
+    problems.append("stats events without overlay_enabled")
 
 if run == 2 and not (any("arrangement scan (narrow)" in l and "-> selftrap_rhythm" in l for l in lines)
                      and any("timer search (narrow" in l for l in lines)):

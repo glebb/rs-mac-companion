@@ -14,7 +14,8 @@ two doesn't matter).
 
 **The game itself changed** (detection stops working although the dylib loads): the values are the
 same as below, but the dylib has its own copy of them as `#define`s at the top of
-[native/rscompanion.c](../native/rscompanion.c) (`IMAGE_BASE`, `ARRANGEMENT_VTABLE`, `ARR_NAME`).
+[native/rscompanion.c](../native/rscompanion.c) (`IMAGE_BASE`, `ARRANGEMENT_VTABLE`, `ARR_NAME`, and
+for the stream overlays `NOTE_STATS_VTABLE`, `SCORE_ATTACK_VTABLE`).
 Find the new values with the steps below (they use `rsprobe` from outside, which needs Developer
 Mode), put them in both `game_profile.json` and `rscompanion.c`, rebuild the app
 (`app/build.sh`) and click **Update** in it. What the dylib log says, step by step:
@@ -22,7 +23,7 @@ Mode), put them in both `game_profile.json` and `rscompanion.c`, rebuild the app
 | Step below | Dylib log line when it works |
 |---|---|
 | 2. song detected | `song <key> loaded by the game from …` and `selected arrangement <name>` |
-| 3. timer | `timer search (…): … ticking, +N candidates` |
+| 3. timer | `timer search (…): … ticking, +N candidates`, then seconds into each song `play record: song timer is the double at …` or `song timer checked: …` (the play record, [game-memory.md § 6](game-memory.md#6-the-song-timer)) |
 | 4. banners | `banner seen: "<Tags>"` and `song timer is the double at …` |
 | 5. song files | per arrangement `<name>: Base=… changes: …` after the song line |
 
@@ -94,9 +95,11 @@ python3 probe.py findptr <hexaddr>        # who points at an address
 If the selected arrangement no longer appears twice, `current_arrangement()` in `rstone.py`
 needs another way to tell which one is selected.
 
-The `note_stats_*` and `score_attack_*` values are not used by rstone or the dylib yet. To
-re-derive them, play a song and look for the int32 111000 (`probe.py findhex 98b10100`): the
-type pointer is the 8-byte word 0xC before it ([game-memory.md § 8](game-memory.md#8-note-statistics)).
+The `note_stats_*` and `score_attack_*` values are used by the dylib's stream overlays
+(`NOTE_STATS_VTABLE`, `SCORE_ATTACK_VTABLE` and the offsets in `emit_stats()` in
+`rscompanion.c`; log line `note statistics at …` when found). To re-derive them, play a song and
+look for the int32 111000 (`probe.py findhex 98b10100`): the type pointer is the 8-byte word 0xC
+before it ([game-memory.md § 8](game-memory.md#8-note-statistics)).
 
 ### 3. Is the song timer found?
 

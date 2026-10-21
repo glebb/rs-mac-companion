@@ -49,6 +49,7 @@ final class Companion: ObservableObject {
     private var songTones: [GameEvent.Tone] = []
     private var songParts: [GameEvent.Part] = []
     private let log: FileHandle?
+    private(set) var overlay: Overlay!
 
     private init() {
         dataDir = ProcessInfo.processInfo.environment["RS_COMPANION_DATA"]
@@ -68,9 +69,14 @@ final class Companion: ObservableObject {
         if let error = socket.start() { problem = error }
         self.socket = socket
         record("started; listening on \(socket.path); mapping in \(presets.path)")
+        overlay = Overlay(dataDir: dataDir) { [weak self] in self?.record($0) }
+        overlay.configure(enabled: settings.overlayEnabled, port: settings.overlayPort)
         checkGame()
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.checkGame() }
+            MainActor.assumeIsolated {
+                self?.checkGame()
+                self?.reloadSettingsIfEdited()
+            }
         }
     }
 
@@ -169,8 +175,10 @@ final class Companion: ObservableObject {
         settings = new
         new.save(to: settingsPath)
         settingsModified = Self.modified(settingsPath)
-        record("settings: channel \(new.channel), programs \(new.programs), lead \(new.leadMs) ms")
+        record("settings: channel \(new.channel), programs \(new.programs), lead \(new.leadMs) ms, overlays "
+            + (new.overlayEnabled ? "on (port \(new.overlayPort))" : "off"))
         if midiChanged { resend() }
+        overlay.configure(enabled: new.overlayEnabled, port: new.overlayPort)
     }
 
     func program(for category: Category) -> Int { settings.program(for: category) }
@@ -201,21 +209,26 @@ final class Companion: ObservableObject {
         remap(reason: "override")
     }
 
+    /// Picks up rscompanion.json edited by hand (checked with every event and every 2 s).
+    private func reloadSettingsIfEdited() {
+        guard Self.modified(settingsPath) != settingsModified else { return }
+        settingsModified = Self.modified(settingsPath)
+        let new = Settings.load(from: settingsPath)
+        guard new != settings else { return }
+        let midiChanged = new.channel != settings.channel || new.programs != settings.programs
+        settings = new
+        record("rscompanion.json changed: channel \(new.channel), programs \(new.programs), lead \(new.leadMs) ms")
+        if midiChanged { resend() }
+        overlay.configure(enabled: new.overlayEnabled, port: new.overlayPort)
+    }
+
     private func handle(_ e: GameEvent) {
-        if Self.modified(settingsPath) != settingsModified {  // edited by hand
-            settingsModified = Self.modified(settingsPath)
-            let new = Settings.load(from: settingsPath)
-            if new != settings {
-                let midiChanged = new.channel != settings.channel || new.programs != settings.programs
-                settings = new
-                record("rscompanion.json changed: channel \(new.channel), programs \(new.programs), lead \(new.leadMs) ms")
-                if midiChanged { resend() }
-            }
-        }
+        reloadSettingsIfEdited()
         if presets.reload() {
             record("presets.json changed; mapping again")
             remap(reason: "presets.json changed")
         }
+        if overlay.running { overlay.handle(e) }
         switch e.event {
         case "song":
             setSong(e)

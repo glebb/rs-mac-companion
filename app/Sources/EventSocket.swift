@@ -16,10 +16,21 @@ struct GameEvent: Decodable {
         let slots: [String: String]
     }
 
-    let event: String              // "song", "tone" or "state"
+    /// The note statistics of a "stats" event (Score Attack fields only in Score Attack).
+    struct Stats: Equatable {
+        let mode: String               // "las" (Learn a Song) or "sa" (Score Attack)
+        let hits, misses, streak, best_streak, miss_streak: Int
+        var best_miss_streak, perfect_hits, perfect_streak, late_hits, late_streak: Int?
+        var phrases, phrase_streaks, best_phrase_streaks: [Int]?   // perfect, good, passed, failed
+        var score, multiplier, best_multiplier: Int?
+    }
+
+    let event: String              // "song", "tone", "state" or "stats"
     let song: String?
     let artist: String?
     let arrangement: String?
+    let song_key: String?          // song, tone, state: the manifest's SongKey
+    let archive: String?           // song, tone, state: the song's .psarc
     let tones: [Tone]?             // song, state: the arrangement's tone slots in use
     let parts: [Part]?             // song, state: every arrangement of the song
     let slot: String?              // tone, state: the active slot (Base, A-D)
@@ -32,6 +43,22 @@ struct GameEvent: Decodable {
     let timer_locked: Bool?        // state
     let lead_ms: Int?              // state
     let pid: Int?                  // state
+    // stats
+    let live: Bool?                // false: the game freed the statistics (song left)
+    let mode: String?
+    let hits, misses, streak, best_streak, miss_streak: Int?
+    let best_miss_streak, perfect_hits, perfect_streak, late_hits, late_streak: Int?
+    let phrases, phrase_streaks, best_phrase_streaks: [Int]?
+    let score, multiplier, best_multiplier: Int?
+
+    var stats: Stats? {
+        guard let mode, let hits, let misses else { return nil }
+        return Stats(mode: mode, hits: hits, misses: misses, streak: streak ?? 0, best_streak: best_streak ?? 0,
+                     miss_streak: miss_streak ?? 0, best_miss_streak: best_miss_streak, perfect_hits: perfect_hits,
+                     perfect_streak: perfect_streak, late_hits: late_hits, late_streak: late_streak, phrases: phrases,
+                     phrase_streaks: phrase_streaks, best_phrase_streaks: best_phrase_streaks, score: score,
+                     multiplier: multiplier, best_multiplier: best_multiplier)
+    }
 }
 
 /// Owns the Unix datagram socket the dylib sends to (DATA_DIR/events.sock) and decodes what

@@ -53,6 +53,11 @@
 #define ARR_NAME 0x18
 #define PLAY_POS 0x20    // play record: position, float seconds
 #define PLAY_MS 0x24     // play record: position, int32 milliseconds
+// Note statistics (game-memory.md section 8): Learn a Song and Score Attack objects, alive while a
+// song is played. Offsets as in game_profile.json.
+#define NOTE_STATS_VTABLE 0x1017F92C0ULL
+#define NOTE_STATS_MARKER 0xC           // int32 111000
+#define SCORE_ATTACK_VTABLE 0x10180A388ULL
 
 #define OUR_TAG 250      // VM tag of our own buffers (application-specific tags are 240..255)
 #define CHUNK (1 << 20)
@@ -102,6 +107,7 @@ static int ends_with(const char *s, const char *suffix) {
 typedef struct {
     char name[128];                 // e.g. "skid18an_lead"
     char song_key[128];             // manifest SongKey, e.g. "Skid18an" (names the play record)
+    char archive[1024];             // the .psarc the game loaded it from
     char song[256], artist[256];
     char slots[5][128];             // tone keys for Base, A..D ("" if unused)
     rs_tone_def tones[MAX_TONES];
@@ -346,6 +352,7 @@ static void handle_read(const read_event *ev) {
 
     song *s = load_song(p, key);
     if (!s) return;
+    for (int i = 0; i < s->narr; i++) snprintf(s->arr[i].archive, sizeof s->arr[i].archive, "%s", ev->path);
     logline("song %s loaded by the game from %s: %d arrangements read in %.0f ms", key, short_path(ev->path),
             s->narr, (now_s() - t) * 1000);
     for (int i = 0; i < s->narr; i++) {
@@ -435,8 +442,8 @@ static int tag_of(uint64_t addr) {
     return a <= addr && addr < a + s ? (int)info.user_tag : -1;
 }
 
-enum { TAGS_ARRANGEMENT, TAGS_BANNER, TAGS_TIMER, TAGS_PLAY, NTAGS };
-static const char *TAG_NAMES[NTAGS] = {"arrangement", "banner", "timer", "play"};
+enum { TAGS_ARRANGEMENT, TAGS_BANNER, TAGS_TIMER, TAGS_PLAY, TAGS_STATS, NTAGS };
+static const char *TAG_NAMES[NTAGS] = {"arrangement", "banner", "timer", "play", "stats"};
 static tagset g_tags[NTAGS];
 static pthread_mutex_t g_tags_lock = PTHREAD_MUTEX_INITIALIZER;
 static char g_tags_file[1024];
@@ -685,12 +692,20 @@ static int read_timer(uint64_t addr, double *v) {
 // (DATA_DIR/events.sock). Sending never blocks: with no app listening, or its queue full, the
 // event is dropped. Every event is also logged as an "EVENT {json}" line, except heartbeats.
 //
-//   song   {"event":"song", song, artist, arrangement, tones:[{slot, tone, descriptors, amp, gain}],
+//   song   {"event":"song", song, artist, arrangement, song_key, archive,
+//          tones:[{slot, tone, descriptors, amp, gain}],
 //          parts:[{arrangement, slots:{Base: key, A: key, ...}}] (every arrangement of the song)}
-//   tone   {"event":"tone", song, artist, arrangement, slot, tone, descriptors, amp, gain, source[, time]}
+//   tone   {"event":"tone", song, artist, arrangement, song_key, archive, slot, tone, descriptors, amp, gain,
+//          source[, time]}
 //          (amp: the tone's amp key, gain: its gain knob 0-100 or null)
 //   state  heartbeat every second: {"event":"state", protocol, pid, lead_ms, timer_locked,
-//          and with a song: song, artist, arrangement, tones, parts, slot[, time]}
+//          and with a song: song, artist, arrangement, song_key, archive, tones, parts, slot[, time]}
+//   stats  only with overlay_enabled, 4 times a second while a song is played (see the stats
+//          section): {"event":"stats", mode: "las" or "sa", hits, misses, streak, best_streak,
+//          miss_streak[, time], and in Score Attack: best_miss_streak, perfect_hits,
+//          perfect_streak, late_hits, late_streak, phrases:[perfect, good, passed, failed],
+//          phrase_streaks:[4], best_phrase_streaks:[4], score, multiplier, best_multiplier};
+//          {"event":"stats", "live": false} once when the game frees the objects.
 //
 // source: "song-start" (arrangement's starting tone), "banner" (the game's on-screen tone text,
 // before the song timer is locked; up to ~1 s late), "timer" (song timer + timeline; on time).
@@ -744,6 +759,10 @@ static void add_song(char *ev, size_t size, const arrangement *a) {
     json_str(ev, size, a->artist);
     strlcat(ev, ", \"arrangement\": ", size);
     json_str(ev, size, a->name);
+    strlcat(ev, ", \"song_key\": ", size);
+    json_str(ev, size, a->song_key);
+    strlcat(ev, ", \"archive\": ", size);
+    json_str(ev, size, a->archive);
 }
 
 // "descriptors": [...], "amp": ..., "gain": ... of the tone in a slot (gain: the amp's gain knob,
@@ -865,8 +884,10 @@ static void build_parts(const song *s, char *out, size_t size) {
 }
 
 // Settings from DATA_DIR/rscompanion.json, re-read when the file changes:
-//   {"lead_ms": 100}   report tone changes this many ms before the song file's change time
+//   {"lead_ms": 100}            report tone changes this many ms before the song file's change time
+//   {"overlay_enabled": true}   read the note statistics for the app's stream overlays
 static char g_config_file[1024];
+static volatile int g_overlay;
 
 static void config_poll(void) {
     static struct timespec seen;
@@ -887,6 +908,16 @@ static void config_poll(void) {
             g_lead_ms = (int)ms;
             logline("config: lead_ms = %d", g_lead_ms);
         }
+    }
+    p = strstr(text, "\"overlay_enabled\"");
+    int on = 0;
+    if (p && (p = strchr(p + 17, ':'))) {
+        while (*++p == ' ' || *p == '\t' || *p == '\n') {}
+        on = !strncmp(p, "true", 4);
+    }
+    if (on != g_overlay) {
+        g_overlay = on;
+        logline("config: overlay_enabled = %s", on ? "true" : "false");
     }
 }
 
@@ -1454,6 +1485,137 @@ static void *tracker(void *arg) {
     return NULL;
 }
 
+// ================================================================ note statistics
+
+// Only with overlay_enabled (for the app's RockSniffer-compatible stream overlays): the game's
+// note-stats object (every mode) and Score Attack object exist while a song is played, both
+// with the int32 111000 at +0xC. They are found by type pointer (freed copies keep the marker
+// but lose the type pointer), looked for every 2 s while an arrangement is selected, and read
+// 4 times a second until their type pointer goes.
+typedef struct { uint64_t want[2]; uint64_t hits[2][64]; int n[2]; } stats_search;
+
+static int find_stats(uint64_t base, const uint8_t *d, size_t len, void *ctx) {
+    stats_search *ss = ctx;
+    for (size_t i = 0; i + 16 <= len; i += 8) {
+        uint64_t v;
+        memcpy(&v, d + i, 8);
+        for (int k = 0; k < 2; k++)
+            if (v == ss->want[k] && ss->n[k] < 64) {
+                int32_t mark;
+                memcpy(&mark, d + i + NOTE_STATS_MARKER, 4);
+                if (mark == 111000) ss->hits[k][ss->n[k]++] = base + i;
+            }
+    }
+    return 1;
+}
+
+// Whether the object at a is still alive (its type pointer and marker in place).
+static int stats_alive(uint64_t a, uint64_t vtable) {
+    uint8_t h[NOTE_STATS_MARKER + 4];
+    if (!a || !safe_read(a, h, sizeof h)) return 0;
+    uint64_t v;
+    int32_t mark;
+    memcpy(&v, h, 8);
+    memcpy(&mark, h + NOTE_STATS_MARKER, 4);
+    return v == vtable && mark == 111000;
+}
+
+static void add_ints(char *ev, size_t size, const char *name, const int32_t *v, int n) {
+    char s[160];
+    size_t at = (size_t)snprintf(s, sizeof s, ", \"%s\": [", name);
+    for (int i = 0; i < n; i++) at += (size_t)snprintf(s + at, sizeof s - at, "%s%d", i ? ", " : "", v[i]);
+    strlcat(s, "]", sizeof s);
+    strlcat(ev, s, size);
+}
+
+// The stats event for the objects at note and sa (0 if not in Score Attack); 0 if unreadable.
+static int emit_stats(uint64_t note, uint64_t sa) {
+    int32_t n[8], q[0x128 / 4];
+    if (!safe_read(note + 0x40, n, sizeof n)) return 0;
+    if (sa && !safe_read(sa, q, sizeof q)) sa = 0;
+    char ev[1024];
+    snprintf(ev, sizeof ev,
+             "{\"event\": \"stats\", \"mode\": \"%s\", \"hits\": %d, \"misses\": %d, \"streak\": %d, "
+             "\"best_streak\": %d, \"miss_streak\": %d",
+             sa ? "sa" : "las", n[0], n[4], n[1], n[3], n[5]);
+    pthread_mutex_lock(&g_state_lock);
+    int confirmed = g_confirmed;
+    uint64_t timer = g_timer;
+    pthread_mutex_unlock(&g_state_lock);
+    double tv;
+    if (confirmed && read_timer(timer, &tv)) {
+        char t[32];
+        snprintf(t, sizeof t, ", \"time\": %.3f", tv);
+        strlcat(ev, t, sizeof ev);
+    }
+    if (sa) {
+        char x[256];
+        snprintf(x, sizeof x,
+                 ", \"best_miss_streak\": %d, \"perfect_streak\": %d, \"perfect_hits\": %d, \"late_streak\": %d, "
+                 "\"late_hits\": %d, \"score\": %d, \"multiplier\": %d, \"best_multiplier\": %d",
+                 q[0x64 / 4], q[0x90 / 4], q[0x94 / 4], q[0x98 / 4], q[0x9C / 4], q[0x118 / 4], q[0x11C / 4],
+                 q[0x120 / 4]);
+        strlcat(ev, x, sizeof ev);
+        add_ints(ev, sizeof ev, "phrases", &q[0xA0 / 4], 4);
+        add_ints(ev, sizeof ev, "phrase_streaks", &q[0xB0 / 4], 4);
+        add_ints(ev, sizeof ev, "best_phrase_streaks", &q[0xC0 / 4], 4);
+    }
+    strlcat(ev, "}", sizeof ev);
+    send_event(ev, 0);
+    return 1;
+}
+
+static void *stats_watch(void *arg) {
+    (void)arg;
+    uint8_t *buf = own_alloc(CHUNK);
+    stats_search *ss = own_alloc(sizeof *ss);
+    uint64_t vt[2] = {NOTE_STATS_VTABLE + g_slide, SCORE_ATTACK_VTABLE + g_slide};
+    uint64_t note = 0, sa = 0;
+    double last_scan = 0;
+    unsigned tries = 0;
+    for (;;) {
+        pthread_mutex_lock(&g_state_lock);
+        int have = g_have_arr;
+        pthread_mutex_unlock(&g_state_lock);
+        if (!g_overlay || !have) {
+            if (note) send_event("{\"event\": \"stats\", \"live\": false}", 1);
+            note = sa = 0;
+            usleep(500000);
+            continue;
+        }
+        if (note && !stats_alive(note, vt[0])) {
+            logline("note statistics at %llx freed", (unsigned long long)note);
+            send_event("{\"event\": \"stats\", \"live\": false}", 1);
+            note = sa = 0;
+        }
+        if (sa && !stats_alive(sa, vt[1])) sa = 0;
+        // Narrow scans every 2 s, a full one (everything, or nothing learned yet) at most every 10 s.
+        double t = now_s();
+        tagset tags;
+        const tagset *only = tries % 5 != 4 ? tags_for(TAGS_STATS, &tags) : NULL;
+        if (!note && t - last_scan >= (only ? 2 : 10)) {
+            last_scan = t;
+            tries++;
+            ss->want[0] = vt[0], ss->want[1] = vt[1];
+            ss->n[0] = ss->n[1] = 0;
+            scan(buf, only, find_stats, ss);
+            if (ss->n[0]) {
+                // More than one: the newest object is most likely the last one allocated; keep
+                // the one whose hits change if that ever matters (not seen so far).
+                note = ss->hits[0][ss->n[0] - 1];
+                sa = ss->n[1] ? ss->hits[1][ss->n[1] - 1] : 0;
+                tags_learn(TAGS_STATS, note);
+                if (sa) tags_learn(TAGS_STATS, sa);
+                logline("note statistics at %llx (%d found)%s", (unsigned long long)note, ss->n[0],
+                        sa ? ", Score Attack" : "");
+            }
+        }
+        if (note && !emit_stats(note, sa)) note = sa = 0;
+        usleep(note ? 250000 : 500000);
+    }
+    return NULL;
+}
+
 // ================================================================ start
 
 static void find_images(void) {
@@ -1506,7 +1668,7 @@ __attribute__((constructor)) static void init(void) {
         logline("known memory tags for %s:%s", TAG_NAMES[k], s[0] ? s : " (none yet: first scans cover everything)");
     }
     pthread_t th;
-    void *(*threads[])(void *) = {worker, searcher, banner_watch, tracker};
+    void *(*threads[])(void *) = {worker, searcher, banner_watch, tracker, stats_watch};
     for (size_t i = 0; i < sizeof threads / sizeof threads[0]; i++)
         if (pthread_create(&th, NULL, threads[i], NULL) == 0) pthread_detach(th);
 }

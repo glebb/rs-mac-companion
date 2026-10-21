@@ -72,6 +72,36 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            section("Stream overlays (RockSniffer compatible)") {
+                Toggle("Serve overlays", isOn: binding(\.overlayEnabled))
+                if companion.settings.overlayEnabled {
+                    Stepper(value: binding(\.overlayPort), in: 1024...65535) {
+                        Text(verbatim: "Port \(companion.settings.overlayPort)")
+                    }
+                    if let problem = companion.overlay.problem {
+                        Text(problem).font(.caption).foregroundStyle(.red)
+                    }
+                    DisclosureGroup("Overlay pages for OBS") {
+                        ForEach(overlayPages, id: \.self) { page in
+                            HStack {
+                                Text(page.components(separatedBy: "/").first ?? page).font(.callout)
+                                Spacer()
+                                Button("Copy URL") { copy(overlayURL(page)) }.controlSize(.small)
+                            }
+                        }
+                    }
+                    HStack {
+                        Button("Open Addons") { open(URL(string: overlayURL(""))) }
+                        Button("Show Text Files") { open(URL(fileURLWithPath: companion.overlay.outputDir)) }
+                    }
+                }
+                Text("RockSniffer's overlay pages and API on 127.0.0.1 for OBS browser sources, plus its text files "
+                     + "and album_cover.jpeg for text and image sources. Turn it off when you don't stream: the game "
+                     + "then doesn't look for the note statistics. Overlay pages and API by RockSniffer "
+                     + "(kokolihapihvi and contributors, MIT).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             section("General") {
                 Toggle("Open at login", isOn: Binding(get: { loginItem }, set: setLoginItem))
                 if let loginProblem {
@@ -97,6 +127,27 @@ struct SettingsView: View {
             s[keyPath: key] = value
             companion.update(s)
         })
+    }
+
+    /// The bundled addons' pages, as "<addon>/<page>.html".
+    private var overlayPages: [String] {
+        guard let root = companion.overlay.addonsDir else { return [] }
+        return ((try? FileManager.default.contentsOfDirectory(atPath: root)) ?? []).sorted()
+            .filter { $0 != "_deps" && !$0.hasPrefix(".") && !$0.contains(".") }
+            .map { "\($0)/\(OverlayServer.entry(root, $0))" }
+    }
+
+    private func overlayURL(_ page: String) -> String {
+        "http://127.0.0.1:\(companion.settings.overlayPort)/addons/\(page)"
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func open(_ url: URL?) {
+        if let url { NSWorkspace.shared.open(url) }
     }
 
     private func programBinding(_ c: Category) -> Binding<Int> {

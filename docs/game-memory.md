@@ -142,7 +142,10 @@ The position in the playing song, which with the song file's tone timeline tells
 3. ~16–21 candidates survive per round while a song plays. Pool them (up to 64).
 
 **Confirming which candidate is the song timer: the play record.** While a song plays, the
-game keeps a record of its audio play event (Wwise):
+game keeps a record of its audio play event (Wwise). Found by following RockSniffer's lead:
+[RockSnifferLib](https://github.com/kokolihapihvi/RockSnifferLib) (`RSMemoryReader`) tells the
+highlighted song on Windows from the preview's event name `Play_<SongKey>_Preview`; looking for
+the song's own event `Play_<SongKey>` found this record, which carries the song position:
 
 ```
 +0x00  event name "Play_<SongKey>" as a 32-byte string (Section 4), e.g. "Play_NoteAmaz"
@@ -263,9 +266,11 @@ not identified.
 
 The hit/miss fields matched the note stats object at every snapshot. The phrase counts add up to
 10, which also appears at `+0x148` and `+0x1D8`. Seen in one Score Attack song, found by the
-marker (the type pointer was read from that object afterwards, not yet searched for); the perfect,
-late, phrase and score fields follow RockSniffer's layout and give plausible values, but were not
-compared with the screen. RockSniffer's arrangement path string (`+0x1D0`) was not looked for.
+marker; later (2026-10-21, *Back In Black*) found by the dylib by type pointer within ~3 s of
+the song start, alongside the note stats. Over ~45 s the score rose with the hits (0 → 18,040),
+the multiplier climbed with the streak and dropped after misses, perfect hits (26) and late hits
+(2) counted up. These fields follow RockSniffer's layout and behave plausibly, but were not
+compared number by number with the screen. RockSniffer's arrangement path string (`+0x1D0`) was not looked for.
 
 ## 9. Where things live: memory tags
 

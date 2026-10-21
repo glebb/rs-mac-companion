@@ -184,32 +184,31 @@ static int skip_array(const uint8_t *d, size_t len, size_t *at, size_t rec, int3
     return 1;
 }
 
-int rs_sng_tones(const uint8_t *sng, size_t len, rs_tone_change **out) {
-    *out = NULL;
-    if (len < 24 || le32(sng) != 0x4A) return -1;
+uint8_t *rs_sng_plain(const uint8_t *sng, size_t len, size_t *plain_len) {
+    if (len < 24 || le32(sng) != 0x4A) return NULL;
     const uint8_t *iv = sng + 8;
     size_t clen = len - 24;
     uint8_t *dec = malloc(clen ? clen : 1);
-    if (!dec) return -1;
+    if (!dec) return NULL;
     CCCryptorRef c;
     size_t moved = 0;
     if (CCCryptorCreateWithMode(kCCDecrypt, kCCModeCTR, kCCAlgorithmAES, ccNoPadding, iv, SNG_KEY_MAC,
                                 sizeof SNG_KEY_MAC, NULL, 0, 0, kCCModeOptionCTR_BE, &c) != kCCSuccess) {
         free(dec);
-        return -1;
+        return NULL;
     }
     CCCryptorStatus st = CCCryptorUpdate(c, sng + 24, clen, dec, clen, &moved);
     CCCryptorRelease(c);
     if (st != kCCSuccess || clen < 4) {
         free(dec);
-        return -1;
+        return NULL;
     }
 
     // Decrypted: u32 plain length + zlib stream (followed by unused bytes).
     uLongf plen = (uint32_t)le32(dec);
     if (plen > MAX_SNG_PLAIN) {
         free(dec);
-        return -1;
+        return NULL;
     }
     uint8_t *d = malloc(plen ? plen : 1);
     z_stream zs = {0};
@@ -225,8 +224,18 @@ int rs_sng_tones(const uint8_t *sng, size_t len, rs_tone_change **out) {
     free(dec);
     if (!ok) {
         free(d);
-        return -1;
+        return NULL;
     }
+    *plain_len = plen;
+    return d;
+}
+
+int rs_sng_tones(const uint8_t *sng, size_t len, rs_tone_change **out) {
+    *out = NULL;
+    size_t plen = 0;
+    uint8_t *d = rs_sng_plain(sng, len, &plen);
+    if (!d) return -1;
+    int ok = 1;
 
     // Arrays before the tones (record sizes as in Rocksmith2014.NET's Types/*.fs, MIT).
     size_t at = 0;

@@ -27,7 +27,7 @@ your MIDI-controlled amp, speaker or app
 
 ### The dylib ([native/rscompanion.c](../native/rscompanion.c))
 
-Loaded by the game at startup (constructor `init()`); four threads, so nothing ever runs on the
+Loaded by the game at startup (constructor `init()`); five threads, so nothing ever runs on the
 game's own threads except a few counters in the file-call interposers.
 
 | Thread | Does |
@@ -37,6 +37,7 @@ game's own threads except a few counters in the file-call interposers.
 | **searcher** | After each song load: finds the selected arrangement (object that exists twice) every second for up to 2 minutes until found. Then, once per song, finds the game's live play record (`Play_<SongKey>` with the song position) every 3 s until the song plays: confirms the timer candidate equal to its position, or checks (and if wrong, drops) a confirmed timer. Rate-searches for timer candidates while unconfirmed: for arrangements with tone changes, and for others while the play record shows the song playing. |
 | **banner watch** | Finds new `"<Song> - <Tags>"` banners: continuously until the timer is confirmed, afterwards only just after each expected change and every 15 s. |
 | **tracker** | 20 times a second: emits events, confirms the timer with banners, follows the active slot at `timer + lead`, sends a heartbeat every second, re-reads settings. |
+| **stats watch** | Only with `overlay_enabled` (stream overlays): while an arrangement is selected, looks for the game's note-stats and Score Attack objects by type pointer and marker ([game-memory.md § 8](game-memory.md#8-note-statistics)) every 2 s (narrow scans; a full one at most every 10 s), then reads them 4 times a second until the game frees them. |
 
 Memory searches learn which memory tags hold what they look for and scan only those
 (`rscompanion_tags.txt`); see [game-memory.md § 9](game-memory.md#9-where-things-live-memory-tags).
@@ -51,6 +52,7 @@ send buffer to 16 KB, the app its receive buffer to 256 KB. Protocol version 1.
 ```jsonc
 // The selected arrangement changed (also when the same song is loaded again)
 {"event": "song", "song": "18 And Life", "artist": "Skid Row", "arrangement": "skid18an_lead",
+ "song_key": "Skid18an", "archive": "/…/dlc/skid18an_m.psarc",   // also in tone and state events
  "tones": [{"slot": "Base", "tone": "skid18an_clean", "descriptors": ["CLEAN"], "amp": "Amp_TW22", "gain": 14}, ...],   // slots in use
  "parts": [{"arrangement": "skid18an_rhythm", "slots": {"Base": "skid18an_clean", "A": "..."}}, ...]}  // all arrangements
 
@@ -62,6 +64,15 @@ send buffer to 16 KB, the app its receive buffer to 256 KB. Protocol version 1.
 {"event": "state", "protocol": 1, "pid": 19972, "lead_ms": 100, "timer_locked": true,
  "song": "...", "artist": "...", "arrangement": "...", "tones": [...], "parts": [...],
  "slot": "B", "tone": "skid18an_dist", "time": 52.3}         // song fields only once a song is known
+
+// Note statistics, 4 times a second while a song is played (only with overlay_enabled)
+{"event": "stats", "mode": "las", "hits": 120, "misses": 7, "streak": 31, "best_streak": 54,
+ "miss_streak": 0, "time": 63.2,
+ // Score Attack ("mode": "sa") also:
+ "best_miss_streak": 4, "perfect_hits": 57, "perfect_streak": 0, "late_hits": 8, "late_streak": 1,
+ "phrases": [3, 6, 0, 1], "phrase_streaks": [2, 0, 0, 0], "best_phrase_streaks": [2, 5, 0, 1],  // perfect, good, passed, failed
+ "score": 80856, "multiplier": 8, "best_multiplier": 8}
+{"event": "stats", "live": false}                             // once, when the game frees them (song left)
 ```
 
 `source`: `song-start` (the arrangement's starting Base tone, when it is selected), `banner` (the
@@ -78,12 +89,13 @@ catch up, and tells it whether the game (with the dylib) is running.
 | `EventSocket.swift` | binds `events.sock`, decodes events on a background queue, delivers them on the main thread |
 | `Presets.swift` | the mapping in `presets.json`, evaluated exactly like `presets.py` (checked on all 17,542 tone slots of a library) |
 | `Category.swift` | Clean, Crunch, Heavy, Lead |
-| `Settings.swift` | `rscompanion.json`: MIDI channel, Program Change per category, lead time |
+| `Settings.swift` | `rscompanion.json`: MIDI channel, Program Change per category, lead time, stream overlays |
 | `MIDIOut.swift` | a CoreMIDI virtual source "Rocksmith Companion"; Program Change as MIDI 1.0 UMP |
 | `Companion.swift` | state, mapping, overrides, when to send, install status and warnings |
 | `GameInstaller.swift`, `MachOPatcher.swift` | install, update and uninstall in the game (below) |
 | `Main.swift` | starts the app, or runs an install command (`--game-status`, `--install-game`, `--uninstall-game`) |
 | `App.swift`, `SettingsView.swift` | the menu-bar window (SwiftUI `MenuBarExtra`) |
+| `Overlay.swift`, `OverlayServer.swift`, `SongDetails.swift` | RockSniffer-compatible stream overlays (below) |
 
 **Mapping** a tone to a category (first match wins, like `rstone.py`):
 1. `songs`: per arrangement and slot (the app's overrides go here)
@@ -118,8 +130,37 @@ active tone's mapping resends. Pause stops sending; Resend sends the current cat
 {"lead_ms": 100, "midi_channel": 1, "programs": {"Clean": 0, "Crunch": 1, "Heavy": 2, "Lead": 3}}
 ```
 
-`programs` presets in the app: 0–3 (default), 4–7, or custom.
-The dylib re-reads `lead_ms` within a second (no game restart).
+`programs` presets in the app: 0–3 (default), 4–7, or custom. `overlay_enabled` (default false)
+and `overlay_port` (9938) switch the stream overlays.
+The dylib re-reads `lead_ms` and `overlay_enabled` within a second (no game restart).
+
+**Stream overlays** (RockSniffer compatible). [RockSniffer](https://github.com/kokolihapihvi/RockSniffer)
+by kokolihapihvi and contributors (Windows, MIT) feeds OBS overlays from a local HTTP service; the
+app serves the same API, so its overlay pages ("addons", bundled unchanged from
+`third_party/rocksniffer-addons`) and others written for it work unchanged. The API, field names,
+states, text files, tuning names and the way song details are built all follow RockSniffer's
+code ([credits](../README.md#credits)). With `overlay_enabled`:
+
+- `OverlayServer.swift` listens on `127.0.0.1:<overlay_port>` only. `GET /` returns RockSniffer's
+  `{success, currentState, memoryReadout, songDetails, Version}`; `GET`/`PUT /storage/<addon>/<key>`
+  keeps addon values in `DATA_DIR/addon_storage`; `GET /addons/…` serves the addons (a folder: the
+  index page; `config.js` is generated with the port). Every response allows any origin.
+- `Overlay.swift` keeps the state from the events. `memoryReadout`: `songTimer`, `songID`
+  (SongKey), `arrangementID` (the selected arrangement's manifest `PersistentID`), `mode` (1 Learn
+  a Song, 2 Score Attack), `noteData` (from `stats` events, in RockSniffer's field names; accuracy =
+  hits / (hits + misses) × 100). `currentState`, inferred: 0 no game, 1 menus, 2 song selected,
+  3 for a second after the stats objects appear, 4 playing, 5 ending (the timer stopped at the
+  song's end, or for 2 s after the objects go; `gameStage` is then `las_songreview` /
+  `sa_songreview`, which addons use to close the last section), then 1 until the next song.
+- `SongDetails.swift` reads `songDetails` from the song's archive with `native/rsfile.c` (compiled
+  into the app): from the manifests the names, album, year, length, and per arrangement its
+  `PersistentID`, path type, bonus/alternate flags, tuning (RockSniffer's tuning names), sections
+  and phrase iterations (numbered `"<name> <n>"`); from the `.sng` files the measures (beats) and
+  the vocals; the album art (DDS, which ImageIO reads) as base64 JPEG; `toolkit.version` of custom
+  songs; the archive's MD5 (`psarcFileHash`). Read once per song in the background and cached.
+- Every second it writes RockSniffer's default text files to `DATA_DIR/output`
+  (`song_details.txt`, `album_details.txt`, `song_timer.txt`, `notes.txt`, `accuracy.txt`,
+  `streaks.txt`, same placeholders and formats) and `album_cover.jpeg` on each song.
 
 ### Installing into the game
 
@@ -182,7 +223,8 @@ of the game executable. `tools/add_load_dylib.py` does step 3 by hand for any ex
 | Test | Covers |
 |---|---|
 | `tests/run_standin_test.sh` | rstone.py + rsprobe against `tests/standin.c` (timer, decoys, banners) |
-| `tests/run_dylib_test.sh` | the dylib inside `tests/standin_dylib.c`, which reads the game's own `songs.psarc` (the song *Self Trap*) like the game and holds arrangement objects (including a stale pair), a timer, decoy clocks and banners; events checked on the socket; three runs (learning, then narrow scans with a 500 ms lead, then an arrangement without tone changes whose timer the play record locks) |
+| `tests/run_dylib_test.sh` | the dylib inside `tests/standin_dylib.c`, which reads the game's own `songs.psarc` (the song *Self Trap*) like the game and holds arrangement objects (including a stale pair), a timer, decoy clocks and banners; events checked on the socket; three runs (learning, then narrow scans with a 500 ms lead, then an arrangement without tone changes whose timer the play record locks, with stream overlays on: note-stats and Score Attack objects reported in `stats` events) |
+| `tests/run_overlay_test.sh` | stand-in → dylib → app with stream overlays: RockSniffer's API (`GET /` with the song details read from `songs.psarc`, `/addons`, `/storage`), the text files and album art, the state after the game is gone |
 | `tests/run_app_test.sh` | stand-in → dylib → app → MIDI (`tools/midi_monitor.swift`), with a song override, a live `presets.json` edit, custom MIDI settings and a restart catch-up |
 | `tests/run_installer_test.sh` | the installer on a copy of the game executable: fresh install, repeat, prototype migration, update, uninstall back to the original bytes, missing game |
 
@@ -195,8 +237,10 @@ temporary data folder.
 - **Song load**: song detected at the game's first `.sng` read; all arrangements read in 1–5 ms;
   ~3.3 s before the audio starts.
 - **Arrangement**: one narrow scan (~400–500 MB) in ~0.2 s, about 1 s after the load.
-- **Timer**: searched only until the first banner of a game session (~30–60 s of 4 s rounds);
-  afterwards none. First-ever session: full scans (~2.5 GB, ~1 s each) while learning.
+- **Timer**: rate-searched (4 s rounds) until a candidate is confirmed, normally seconds into the
+  first song of a game session by the play record (or at its first banner); afterwards only the
+  play record check, once per song (a narrow text scan, ~0.2–0.3 s every 3 s until the song
+  plays). First-ever session: full scans (~2.5 GB, ~1 s each) while learning.
 - **Steady state while playing**: the 20 Hz tracker and banner checks around tone changes;
   game memory unchanged (~1.0–1.2 GB with or without the dylib).
 - **Latency**: tone changes reported 73–90 ms before the song file's change time (lead 100 ms);

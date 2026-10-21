@@ -11,7 +11,9 @@
 // With a 4th argument "notones": Self Trap's bass (no tone changes, so no banners) is selected,
 // the song starts at e = 5 s (timer from 0), a clock starts when the song is picked (e = 3 s,
 // like the game's), and the game's play record "Play_SelfTrap" holds the song position, next
-// to a stale record from an earlier play and the preview's "Play_SelfTrap_Preview".
+// to a stale record from an earlier play and the preview's "Play_SelfTrap_Preview". While that
+// song plays, the note-stats and Score Attack objects count one hit per second (score +100 each),
+// next to a freed note-stats copy (marker kept, type pointer gone).
 // Built as x86_64, so it runs under Rosetta like the real game.
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
@@ -23,9 +25,19 @@
 #include <unistd.h>
 
 #define ARRANGEMENT_VTABLE 0x1017F8C20ULL
+#define NOTE_STATS_VTABLE 0x1017F92C0ULL
+#define SCORE_ATTACK_VTABLE 0x10180A388ULL
 
 // Objects kept here so the compiler cannot drop allocations nothing else reads.
-void *volatile g_objects[12];
+void *volatile g_objects[16];
+
+// A note-stats or Score Attack object: type pointer at +0, the int32 111000 at +0xC.
+static int32_t *stats_object(uint64_t vtable) {
+    int32_t *o = calloc(1, 0x200);
+    memcpy(o, &vtable, 8);
+    o[3] = 111000;
+    return o;
+}
 
 // A play record: the event name as an inline 32-byte string, then the position as float
 // seconds (+0x20) and int32 milliseconds (+0x24).
@@ -75,9 +87,13 @@ int main(int argc, char **argv) {
 
     volatile double *menu = malloc(8), *loop = malloc(8), *song = malloc(8), *picked = malloc(8);
     uint8_t *rec = NULL;
+    int32_t *note = NULL, *sa = NULL;
     if (notones) {
         g_objects[7] = play_record("Play_SelfTrap", 61.25);  // stale, from an earlier play
         g_objects[8] = play_record("Play_SelfTrap_Preview", 0);
+        int32_t *freed = stats_object(0);  // freed: the allocator overwrote the type pointer
+        freed[0x40 / 4] = 999;
+        g_objects[10] = freed;
     }
     volatile double *dd = malloc(2000000 * 8);
     for (int i = 0; i < 2000000; i++) dd[i] = 0.5 + (i % 99991) * 0.01;
@@ -112,7 +128,18 @@ int main(int argc, char **argv) {
         if (notones) {
             *picked = e < 3 ? 0.0 : e - 3;
             *song = e < 5 ? 0.0 : e - 5;
-            if (!rec && e >= 5) g_objects[9] = rec = play_record("Play_SelfTrap", 0);
+            if (!rec && e >= 5) {
+                g_objects[9] = rec = play_record("Play_SelfTrap", 0);
+                g_objects[11] = note = stats_object(NOTE_STATS_VTABLE + slide);
+                g_objects[12] = sa = stats_object(SCORE_ATTACK_VTABLE + slide);
+                sa[0x11C / 4] = sa[0x120 / 4] = 1;
+            }
+            if (note) {
+                int hits = (int)*song;
+                note[0x40 / 4] = note[0x44 / 4] = note[0x4C / 4] = note[0x5C / 4] = hits;
+                sa[0x68 / 4] = sa[0x58 / 4] = sa[0x60 / 4] = hits;
+                sa[0x118 / 4] = hits * 100;
+            }
             if (rec) {
                 float f = (float)*song;
                 int32_t ms = (int32_t)(*song * 1000);

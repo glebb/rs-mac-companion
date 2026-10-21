@@ -63,9 +63,10 @@ custom-song patch, stays as it is.
 
 Start RS Companion and Rocksmith (any order) and pick a song. The menu-bar window shows:
 
-- whether Rocksmith is connected, and whether the song timer is synced (it syncs at the first tone
-  change of a game session, from the game's on-screen tone text, up to ~1 s late; after that every
-  change is on time, slightly early);
+- whether Rocksmith is connected, and whether the song timer is synced (it syncs within a few
+  seconds of each song starting, from the game's own record of the playing song; a tone change
+  before that comes from the game's on-screen tone text, up to ~1 s late; after that every change
+  is on time, slightly early);
 - the song, artist and part, and every tone of the part with its tags and category (Clean,
   Crunch, Heavy, Lead) and the Program Change it sends; the active tone is highlighted;
 - the last MIDI message, **Pause MIDI** and **Resend**.
@@ -82,7 +83,37 @@ Changed tones show a pencil and what they'd be automatically; ↺ puts them back
   category; the MIDI channel;
 - how early to switch, to cover the time your gear needs (the game picks it up within a second);
 - the Rocksmith folder, install / update / uninstall;
+- stream overlays (below);
 - open at login (install the app in /Applications first).
+
+### Stream overlays (RockSniffer compatible)
+
+For streaming with OBS, RS Companion can stand in for
+[RockSniffer](https://github.com/kokolihapihvi/RockSniffer) (Windows only): turn on **Serve
+overlays** in Settings. The app then:
+
+- serves RockSniffer's overlay pages ("addons": current song, timeline, note streaks, accuracy
+  chart, vocals, arcade, song logger, ...), bundled with the app, at
+  `http://127.0.0.1:9938/addons/`. Add one to OBS as a **Browser** source; **Overlay pages for
+  OBS** in Settings copies their URLs;
+- answers RockSniffer's addon API on the same port, so addons written for RockSniffer work as
+  they are;
+- writes RockSniffer's text files to the data folder's `output/` for OBS **Text** sources
+  (`song_details.txt`, `album_details.txt`, `song_timer.txt`, `notes.txt`, `accuracy.txt`,
+  `streaks.txt`) and `album_cover.jpeg` for an **Image** source (**Show Text Files**).
+
+The notes, streaks and accuracy come from the game's own statistics (Learn a Song and Score
+Attack), song and arrangement details from the song's files. When it's off, nothing listens and
+the game doesn't look for the statistics.
+
+Not like RockSniffer: no Discord status, no custom text formats (`output.json`), and new songs
+aren't added to the game while it runs. Its states "song starting" and "song ending" are
+inferred, and the game stage is only reported at the song review. Multiplayer isn't supported.
+Overlays that tell songs apart by `psarcFileHash` (song logger) see different values than on
+Windows, because the Mac archives are different files.
+
+The overlay pages and everything this mode reports are RockSniffer's design: thanks to
+kokolihapihvi and RockSniffer's contributors (see [Credits](#credits)).
 
 ## External mode (rstone.py)
 
@@ -226,11 +257,12 @@ library and the app honour it too, which the tests use):
 | File | Used by | |
 |---|---|---|
 | `presets.json` | both | your preset mapping |
-| `rscompanion.json` | RS Companion | settings: lead time (read by the game's library), MIDI, Rocksmith folder |
+| `rscompanion.json` | RS Companion | settings: lead time and overlays (read by the game's library), MIDI, Rocksmith folder |
 | `events.sock` | RS Companion | the app's socket; the game's library sends events to it |
 | `rscompanion.log` | RS Companion | the game library's log: songs, arrangement, timer, tone events |
 | `rscompanion_tags.txt` | RS Companion | memory areas the library learned to scan (delete to relearn) |
 | `rs-companion-app.log` | RS Companion | the app's log: songs, tones, mapping, MIDI sent, installs |
+| `output/`, `addon_storage/` | RS Companion | stream overlays: text files and album art for OBS; values overlay pages keep |
 | `tones_index.jsonl`, `index_cache.json` | external mode | song index and its cache |
 | `rstone.log` | external mode | diagnostic log |
 | `tone_catalog.csv`, `songs.csv` | developer tools | catalog from `make_catalog.py` |
@@ -284,6 +316,7 @@ Documentation: [how it works](docs/how-it-works.md), [the game's memory](docs/ga
 | `native/rscompanion.c` | RS Companion | the in-game library: song from file reads, arrangement and timer from memory, events |
 | `native/rsfile.c`, `rsfile.h` | both | song file reader (PSARC, SNG tone timeline, manifests) in C |
 | `presets.default.json` | both | default tone → preset mapping |
+| `third_party/rocksniffer-addons/` | RS Companion | RockSniffer's overlay pages (MIT), served by the app |
 | `rstone.py`, `ui.html` | external mode | the companion and its live window |
 | `native/rsprobe.c` | external mode | the memory reader |
 | `native/rstool.c`, `index_songs.py` | external mode | song file reader front end and the song index |
@@ -294,13 +327,36 @@ Documentation: [how it works](docs/how-it-works.md), [the game's memory](docs/ga
 ## Dependencies
 
 None beyond macOS: the in-game library, the app and `rstool` use only system libraries
-(CoreMIDI, CommonCrypto, zlib); the Python parts use only the standard library. The `.sng` record
-layout in `rsfile.c` follows [Rocksmith2014.NET](https://github.com/iminashi/Rocksmith2014.NET) (MIT).
+(CoreMIDI, CommonCrypto, zlib); the Python parts use only the standard library. The app bundles
+RockSniffer's overlay pages (below).
+
+## Credits
+
+- **[RockSniffer](https://github.com/kokolihapihvi/RockSniffer)** and
+  **[RockSnifferLib](https://github.com/kokolihapihvi/RockSnifferLib)** by kokolihapihvi and
+  contributors (MIT), the Windows tool streamers use with Rocksmith 2014. RS Companion's stream
+  overlays are built on their work:
+  - the overlay pages in `third_party/rocksniffer-addons/` are RockSniffer's own, bundled
+    unchanged (MIT, see its [LICENSE](third_party/rocksniffer-addons/LICENSE) and
+    [SOURCE.md](third_party/rocksniffer-addons/SOURCE.md));
+  - the addon API, its JSON fields, states and modes, the text files and their formats, the
+    tuning names and how song details are read from a song's files follow RockSniffer, so its
+    addons work unchanged;
+  - the note statistics: RockSnifferLib's layouts of the game's note-stats and Score Attack
+    objects and their `111000` check value are how they were found in the Mac game
+    ([game-memory.md § 8](docs/game-memory.md#8-note-statistics));
+  - its reading of the game's `Play_<song>_Preview` sound event to tell the highlighted song led
+    to the play record (`Play_<SongKey>`) that syncs the song timer
+    ([game-memory.md § 6](docs/game-memory.md#6-the-song-timer)).
+- **[Rocksmith2014.NET](https://github.com/iminashi/Rocksmith2014.NET)** by iminashi (MIT): the
+  `.sng` record layout in `native/rsfile.c`.
 
 ## Limitations
 
 - Tones you switch by hand in the game are not seen; changes come from the song's tone timeline.
-- The first tone change of a game session comes from the on-screen banner, up to ~1 s late.
+- A tone change in the first few seconds of a song, before the song timer is synced, comes from
+  the on-screen banner, up to ~1 s late (in external mode: every change until the first banner
+  of a game session).
 - MIDI is one-way: switching presets on the receiving side isn't seen by the app.
 - RS Companion has to be installed into the game again after Steam replaces the game executable
   (the app tells you).
