@@ -45,7 +45,7 @@ final class Companion: ObservableObject {
     private let midi = MIDIOut()
     private let presets: Presets
     private var sentCategory: Category?
-    private var active: (slot: String, key: String, descriptors: [String])?
+    private var active: GameEvent.Tone?
     private var songTones: [GameEvent.Tone] = []
     private var songParts: [GameEvent.Part] = []
     private let log: FileHandle?
@@ -227,8 +227,9 @@ final class Companion: ObservableObject {
             if e.arrangement != arrangement { setSong(e) }
             guard let slot = e.slot, let key = e.tone else { return }
             let descriptors = e.descriptors ?? []
-            let m = presets.match(arrangement: arrangement, slot: slot, key: key, descriptors: descriptors)
-            active = (slot, key, descriptors)
+            let tone = GameEvent.Tone(slot: slot, tone: key, descriptors: descriptors, amp: e.amp, gain: e.gain)
+            let m = match(tone)
+            active = tone
             activeSlot = slot
             activeCategory = m.category
             let when = e.time.map { String(format: " at %.2f s", $0) } ?? ""
@@ -245,9 +246,10 @@ final class Companion: ObservableObject {
             }
             // Started mid-song: catch up with the active tone once.
             if active == nil, let slot = e.slot, let key = e.tone {
-                let descriptors = songTones.first { $0.slot == slot }?.descriptors ?? []
-                let m = presets.match(arrangement: arrangement, slot: slot, key: key, descriptors: descriptors)
-                active = (slot, key, descriptors)
+                let tone = songTones.first { $0.slot == slot && $0.tone == key }
+                    ?? GameEvent.Tone(slot: slot, tone: key, descriptors: songTones.first { $0.slot == slot }?.descriptors ?? [])
+                let m = match(tone)
+                active = tone
                 activeSlot = slot
                 activeCategory = m.category
                 record("caught up: tone \(slot) \(key) → \(m.category.name)")
@@ -269,9 +271,8 @@ final class Companion: ObservableObject {
 
     private func rows() -> [ToneRow] {
         songTones.map { t in
-            let m = presets.match(arrangement: arrangement, slot: t.slot, key: t.tone, descriptors: t.descriptors)
-            let auto = presets.match(arrangement: arrangement, slot: t.slot, key: t.tone, descriptors: t.descriptors,
-                                     overrides: false)
+            let m = match(t)
+            let auto = match(t, overrides: false)
             return ToneRow(slot: t.slot, key: t.tone, descriptors: t.descriptors, category: m.category,
                            preset: m.preset, reason: m.reason, automatic: auto.category)
         }
@@ -281,9 +282,15 @@ final class Companion: ObservableObject {
     private func remap(reason: String) {
         tones = rows()
         guard let a = active else { return }
-        let m = presets.match(arrangement: arrangement, slot: a.slot, key: a.key, descriptors: a.descriptors)
+        let m = match(a)
         activeCategory = m.category
-        send(m.category, reason: "\(a.key) (\(reason))")
+        send(m.category, reason: "\(a.tone) (\(reason))")
+    }
+
+    private func match(_ t: GameEvent.Tone, overrides: Bool = true) -> Presets.Match {
+        presets.match(arrangement: arrangement, slot: t.slot,
+                      tone: Presets.Tone(key: t.tone, descriptors: t.descriptors, amp: t.amp, gain: t.gain),
+                      artist: artist, overrides: overrides)
     }
 
     /// Sends only when the category changes: many devices drop unsaved edits on every preset

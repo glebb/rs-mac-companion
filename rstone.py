@@ -215,10 +215,12 @@ def slot_at(arr, t):
 
 def tone_info(arr, slot):
     key = arr["slots"][slot] or arr["slots"][0]
-    for t in arr["tones"]:
-        if t["key"].lower() == key.lower():
-            return key, t["descriptors"]
-    return key, []
+    return key, tone_def(arr, key).get("descriptors", [])
+
+
+def tone_def(arr, key):
+    """The tone's entry in the index ({key, descriptors, amp, gain, ...}), or {}."""
+    return next((t for t in arr["tones"] if t["key"].lower() == key.lower()), {})
 
 
 # ---------------------------------------------------------------- banner calibration
@@ -327,7 +329,9 @@ def main():
 
     def emit_tone(arr, slot, source, time_s=None):
         key, desc = tone_info(arr, slot)
-        preset, why = presets.get(arr["arrangement"], SLOTS[slot], key, desc)
+        t = tone_def(arr, key)
+        preset, why = presets.get(arr["arrangement"], SLOTS[slot], key, desc,
+                                  artist=arr["artist"], amp=t.get("amp", ""), gain=t.get("gain"))
         event = {"event": "tone", "song": arr["song"], "artist": arr["artist"],
                  "arrangement": arr["arrangement"], "slot": SLOTS[slot], "tone": key,
                  "descriptors": desc, "preset": preset, "preset_reason": why, "source": source}

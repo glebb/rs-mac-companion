@@ -23,6 +23,7 @@ import time
 import paths
 
 BATCH = 50
+FORMAT = 2  # bump when rstool's output changes (2: tones have amp and gain)
 
 
 def archives(game_dir):
@@ -49,6 +50,8 @@ def main():
     try:
         cache = json.load(open(cache_path))
     except (OSError, ValueError):
+        cache = {}
+    if cache.get("_format") != FORMAT:  # written by an older rstool: read everything again
         cache = {}
 
     files = list(archives(args.game_dir))
@@ -84,7 +87,7 @@ def main():
         print(f"  read {min(b + BATCH, len(todo))}/{len(todo)} archives", file=sys.stderr, flush=True)
     read_count = len(todo)
 
-    json.dump(fresh, open(cache_path, "w"))
+    json.dump({"_format": FORMAT, **fresh}, open(cache_path, "w"))
     with open(paths.INDEX, "w") as out:
         for p in files:
             for a in fresh[rel[p]]["arrangements"]:

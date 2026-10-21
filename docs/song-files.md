@@ -63,6 +63,12 @@ OVERDRIVE, LEAD, BASS, ACOUSTIC, CHORUS, REVERB, TREMOLO, PHASER, FLANGER, ECHO,
 OCTAVE, FUZZ, HIGH GAIN, LOW OUTPUT, SPECIAL EFFECT, PROCESSED. The game's on-screen tone banner
 shows them title-cased.
 
+Each `GearList` item (`Amp`, `Cabinet`, `PrePedal1`, `PostPedal1`, `Rack1`, ...) has a `Key` and
+`KnobValues`, named after the key: `{"Key": "Amp_TW22", "KnobValues": {"Amp_TW22_Gain": 14.0,
+"Amp_TW22_Bass": 45.0, ...}}`. Every guitar amp has a `_Gain` knob (0–100) except the Plexi, which
+has `_Loudness1` and `_Loudness2` instead. Most distorted tones have gain 80–100 whatever the amp,
+so the gain only tells crunch from high gain together with the amp model.
+
 Tone keys are almost always specific to one song (97% of the 7,177 keys in a library of
 ~2,400 archives), shared between the parts of that song (38% are used by more than one part). The 3% used
 by several songs are generic names in custom songs (`bass`, `lead`, `distortion`, `clean`, …).

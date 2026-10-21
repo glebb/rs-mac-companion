@@ -33,7 +33,7 @@ static void toc(rs_psarc *p) {
 
 // One JSON line per arrangement, the song index format (index_songs.py): arrangement, path,
 // song, artist, songKey, persistentId, source, slots, tones [{key, name, descriptors, separator,
-// gear}], changes [[time, slot id]].
+// amp, gain (amp gain knob 0-100 or null), gear}], changes [[time, slot id]].
 static void tones(rs_psarc *p, const char *archive) {
     for (uint32_t i = 0; i < p->n; i++) {
         const char *path = p->e[i].path;
@@ -106,6 +106,10 @@ static void tones(rs_psarc *p, const char *archive) {
             }
             printf("], \"separator\": ");
             json_string(defs[d].separator);
+            printf(", \"amp\": ");
+            json_string(defs[d].amp);
+            if (defs[d].gain >= 0) printf(", \"gain\": %.4g", defs[d].gain);
+            else printf(", \"gain\": null");
             printf(", \"gear\": [");
             int first = 1;
             for (char *g = gear[d], *end; *g; g = *end ? end + 1 : end) {

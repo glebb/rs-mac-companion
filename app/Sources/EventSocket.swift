@@ -6,6 +6,8 @@ struct GameEvent: Decodable {
         let slot: String
         let tone: String
         let descriptors: [String]
+        var amp: String? = nil     // the tone's amp key, e.g. "Amp_HG500"
+        var gain: Double? = nil    // its gain knob, 0-100
     }
 
     /// An arrangement of the song with its tone slots (slot name -> tone key).
@@ -23,6 +25,8 @@ struct GameEvent: Decodable {
     let slot: String?              // tone, state: the active slot (Base, A-D)
     let tone: String?              // tone, state: the active tone key
     let descriptors: [String]?     // tone: its tags
+    let amp: String?               // tone: its amp key
+    let gain: Double?              // tone: the amp's gain knob, 0-100
     let source: String?            // tone: song-start, banner or timer
     let time: Double?              // song time in seconds, if known
     let timer_locked: Bool?        // state

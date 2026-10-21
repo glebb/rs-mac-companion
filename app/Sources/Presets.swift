@@ -3,9 +3,11 @@ import Foundation
 /// The tone -> preset mapping in DATA_DIR/presets.json, shared with rstone.py and
 /// make_catalog.py and evaluated the same way as presets.py (first match wins):
 ///   1. songs: per arrangement and slot   2. tones: per tone key
-///   3. rules: by tags ("all"/"any") or words in the tone key ("name")   4. default
-/// The resulting preset name is then read as a category: a category name itself, or the
-/// "categories" section (e.g. "Distortion": "Heavy"). Overrides made in the app write
+///   3. rules: by tags ("all"/"any"), words in the tone key ("name"), the tone's amp ("amp") and
+///      its gain knob ("gain": at least)   4. default
+/// The result of 3 or 4 may then be changed by the song's artist ("artists": {"Bon Jovi":
+/// {"Heavy": "Crunch"}}). The resulting preset name is read as a category: a category name
+/// itself, or the "categories" section (e.g. "Distortion": "Heavy"). Overrides made in the app write
 /// category names into "songs" (for every part of the song that uses the tone). The file is
 /// re-read when it changes.
 final class Presets {
@@ -13,6 +15,7 @@ final class Presets {
         let preset: String
         let category: Category
         let reason: String      // "song override", "tone override", "tags ...", "name" or "default"
+                                // (then ", artist ..." if the artist section changed it)
     }
 
     let path: String
@@ -44,12 +47,21 @@ final class Presets {
         return true
     }
 
-    /// With overrides false, only the rules and the default count: what the tone would be
-    /// without anyone's changes.
-    func match(arrangement: String, slot: String, key: String, descriptors: [String], overrides: Bool = true) -> Match {
+    /// The tone to map: its key and tags, and its amp and gain knob (0-100) if known.
+    struct Tone {
+        let key: String
+        let descriptors: [String]
+        var amp: String? = nil
+        var gain: Double? = nil
+    }
+
+    /// With overrides false, only the rules, the default and the artist section count: what the
+    /// tone would be without changes made to this song.
+    func match(arrangement: String, slot: String, tone: Tone, artist: String, overrides: Bool = true) -> Match {
         func result(_ preset: String, _ reason: String) -> Match {
             Match(preset: preset, category: category(of: preset), reason: reason)
         }
+        let key = tone.key
         if overrides, let song = (data["songs"] as? [String: Any])?[arrangement] as? [String: Any], let p = song[slot] as? String {
             return result(p, "song override")
         }
@@ -57,21 +69,56 @@ final class Presets {
         if overrides, let p = tones.first(where: { $0.key.lowercased() == key.lowercased() })?.value as? String {
             return result(p, "tone override")
         }
-        let tags = Set(descriptors.map { $0.uppercased() })
-        let lower = key.lowercased()
+        let (preset, reason) = rule(tone)
+        let name = artist.trimmingCharacters(in: .whitespaces)
+        if let remap = (data["artists"] as? [String: Any])?
+            .first(where: { $0.key.trimmingCharacters(in: .whitespaces).lowercased() == name.lowercased() })?
+            .value as? [String: Any] {
+            let wanted = [preset.lowercased(), category(of: preset).name.lowercased()]
+            for w in wanted {
+                if let p = remap.first(where: { $0.key.lowercased() == w })?.value as? String {
+                    return result(p, "\(reason), artist \(name)")
+                }
+            }
+        }
+        return result(preset, reason)
+    }
+
+    /// "Amp_HG500" and "HG500" both -> "hg500".
+    private static func ampName(_ amp: String?) -> String {
+        let a = (amp ?? "").lowercased()
+        return a.hasPrefix("amp_") ? String(a.dropFirst(4)) : a
+    }
+
+    /// The rules and the default: (preset, reason).
+    private func rule(_ tone: Tone) -> (String, String) {
+        let tags = Set(tone.descriptors.map { $0.uppercased() })
+        let lower = tone.key.lowercased()
         let words = Set(lower.split { !("a"..."z").contains($0) }.map(String.init))  // re.findall(r"[a-z]+")
+        let amp = Self.ampName(tone.amp)
         for case let rule as [String: Any] in (data["rules"] as? [Any]) ?? [] {
             guard let preset = rule["preset"] as? String else { continue }
             if let all = rule["all"] as? [String], !Set(all).isSubset(of: tags) { continue }
-            if let any = rule["any"] as? [String], !tags.isDisjoint(with: any) {
-                return result(preset, "tags " + tags.sorted().joined(separator: "+"))
+            if let amps = rule["amp"] as? [String], !amps.map(Self.ampName).contains(amp) { continue }
+            if let min = (rule["gain"] as? NSNumber)?.doubleValue {
+                guard let gain = tone.gain, gain >= min else { continue }
             }
-            if let names = rule["name"] as? [String],
-               names.contains(where: { words.contains($0) || ($0.count >= 4 && lower.contains($0)) }) {
-                return result(preset, "name")
+            var gear = ""
+            if rule["amp"] != nil || rule["gain"] != nil {
+                gear = ", amp \(amp.isEmpty ? "?" : amp) gain " + (tone.gain.map { String(format: "%g", $0) } ?? "?")
+            }
+            let any = rule["any"] as? [String], names = rule["name"] as? [String]
+            if let any, !tags.isDisjoint(with: any) {
+                return (preset, "tags " + tags.sorted().joined(separator: "+") + gear)
+            }
+            if let names, names.contains(where: { words.contains($0) || ($0.count >= 4 && lower.contains($0)) }) {
+                return (preset, "name" + gear)
+            }
+            if any == nil && names == nil {
+                return (preset, "tags " + tags.sorted().joined(separator: "+") + gear)
             }
         }
-        return result(data["default"] as? String ?? "Clean", "default")
+        return (data["default"] as? String ?? "Clean", "default")
     }
 
     func category(of preset: String) -> Category {

@@ -51,12 +51,12 @@ send buffer to 16 KB, the app its receive buffer to 256 KB. Protocol version 1.
 ```jsonc
 // The selected arrangement changed (also when the same song is loaded again)
 {"event": "song", "song": "18 And Life", "artist": "Skid Row", "arrangement": "skid18an_lead",
- "tones": [{"slot": "Base", "tone": "skid18an_clean", "descriptors": ["CLEAN"]}, ...],   // slots in use
+ "tones": [{"slot": "Base", "tone": "skid18an_clean", "descriptors": ["CLEAN"], "amp": "Amp_TW22", "gain": 14}, ...],   // slots in use
  "parts": [{"arrangement": "skid18an_rhythm", "slots": {"Base": "skid18an_clean", "A": "..."}}, ...]}  // all arrangements
 
 // The tone changed
 {"event": "tone", "song": "...", "artist": "...", "arrangement": "skid18an_lead", "slot": "B",
- "tone": "skid18an_dist", "descriptors": ["DISTORTION"], "source": "timer", "time": 41.01}
+ "tone": "skid18an_dist", "descriptors": ["DISTORTION"], "amp": "Amp_HG500", "gain": 88, "source": "timer", "time": 41.01}
 
 // Heartbeat, every second: the whole state
 {"event": "state", "protocol": 1, "pid": 19972, "lead_ms": 100, "timer_locked": true,
@@ -88,8 +88,13 @@ catch up, and tells it whether the game (with the dylib) is running.
 **Mapping** a tone to a category (first match wins, like `rstone.py`):
 1. `songs`: per arrangement and slot (the app's overrides go here)
 2. `tones`: per tone key (hand edits)
-3. `rules`: by tags (`any` / `all`), then by words in the tone key (`name`)
+3. `rules`: by tags (`any` / `all`), words in the tone key (`name`), the tone's amp (`amp`) and its
+   gain knob (`gain`, at least)
 4. `default`
+
+then `artists` may change the result of 3 or 4 for the song's artist (`{"Bon Jovi": {"Heavy":
+"Crunch"}}`). The window counts that as automatic: the badge shows no pencil for it, and reset
+doesn't remove it.
 
 (Rule syntax, the default rules, their limits and how to tune them: see
 [How tones are mapped](../README.md#how-tones-are-mapped).)

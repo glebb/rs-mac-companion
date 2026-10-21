@@ -367,18 +367,50 @@ static const char *jskip(const char *p) {
     return p;
 }
 
+static int ends_with_str(const char *s, const char *suffix) {
+    size_t a = strlen(s), b = strlen(suffix);
+    return a >= b && !strcmp(s + a - b, suffix);
+}
+
+// "KnobValues": {"Amp_HG500_Gain": 88.0, ...} -> the gain knob (or the higher Loudness knob,
+// which the Plexi has instead), or -1.
+static const char *jgain(const char *p, float *gain) {
+    *gain = -1;
+    if (*p != '{') return jskip(p);
+    for (p = ws(p + 1); p && *p == '"';) {
+        char name[128];
+        p = jstr(p, name, sizeof name);
+        if (!p) return NULL;
+        p = ws(p);
+        if (*p++ != ':') return NULL;
+        p = ws(p);
+        if (ends_with_str(name, "_Gain") || ends_with_str(name, "_Loudness1") || ends_with_str(name, "_Loudness2")) {
+            char *end;
+            double v = strtod(p, &end);
+            if (end != p && v > *gain) *gain = (float)v;
+        }
+        p = jskip(p);
+        if (!p) return NULL;
+        p = ws(p);
+        if (*p == ',') p = ws(p + 1);
+    }
+    return p && *p == '}' ? p + 1 : NULL;
+}
+
 // "GearList": {"Amp": {"Key": "Amp_AT20", ...}, "Cabinet": {...}, ...} -> "Amp=Amp_AT20;Cabinet=..."
-static const char *jgear(const char *p, char *out, size_t outlen) {
+// into out (if not NULL), and the amp's key and gain into t.
+static const char *jgear(const char *p, char *out, size_t outlen, rs_tone_def *t) {
     if (*p != '{') return jskip(p);
     for (p = ws(p + 1); p && *p == '"';) {
         char slot[64], key[128] = "";
         int has_key = 0;
+        float gain = -1;
         p = jstr(p, slot, sizeof slot);
         if (!p) return NULL;
         p = ws(p);
         if (*p++ != ':') return NULL;
         p = ws(p);
-        if (*p == '{') {  // a gear item: find its "Key"
+        if (*p == '{') {  // a gear item: find its "Key" (and an amp's gain)
             for (p = ws(p + 1); p && *p == '"';) {
                 char name[64];
                 p = jstr(p, name, sizeof name);
@@ -387,6 +419,7 @@ static const char *jgear(const char *p, char *out, size_t outlen) {
                 if (*p++ != ':') return NULL;
                 p = ws(p);
                 if (!strcmp(name, "Key") && *p == '"') p = jstr(p, key, sizeof key), has_key = 1;
+                else if (!strcmp(name, "KnobValues") && !strcmp(slot, "Amp")) p = jgain(p, &gain);
                 else p = jskip(p);
                 if (!p) return NULL;
                 p = ws(p);
@@ -394,6 +427,10 @@ static const char *jgear(const char *p, char *out, size_t outlen) {
             }
             if (!p || *p != '}') return NULL;
             p++;
+            if (!strcmp(slot, "Amp") && has_key) {
+                snprintf(t->amp, sizeof t->amp, "%s", key);
+                t->gain = gain;
+            }
             if (out && outlen && has_key) {  // items without a key (e.g. no cabinet) are left out
                 if (out[0]) strlcat(out, ";", outlen);
                 strlcat(out, slot, outlen);
@@ -422,6 +459,7 @@ static int parse_tones(const char *json, rs_tone_def *out, char *gear, size_t ge
         rs_tone_def *t = &out[n];
         char *g = gear ? gear + (size_t)n * gear_size : NULL;
         memset(t, 0, sizeof *t);
+        t->gain = -1;
         if (g) g[0] = 0;
         for (p = ws(p + 1); p && *p == '"';) {
             char name[64];
@@ -436,8 +474,8 @@ static int parse_tones(const char *json, rs_tone_def *out, char *gear, size_t ge
                 p = jstr(p, t->name, sizeof t->name);
             } else if (!strcmp(name, "NameSeparator") && *p == '"') {
                 p = jstr(p, t->separator, sizeof t->separator);
-            } else if (!strcmp(name, "GearList") && g) {
-                p = jgear(p, g, gear_size);
+            } else if (!strcmp(name, "GearList")) {
+                p = jgear(p, g, gear_size, t);
             } else if (!strcmp(name, "ToneDescriptors") && *p == '[') {
                 for (p = ws(p + 1); p && *p == '"'; p = ws(p)) {
                     char d[64];

@@ -55,7 +55,8 @@ int rs_json_str(const char *json, const char *key, char *out, size_t outlen);
 
 // A tone definition from a manifest's "Tones" array: its key, name, name separator and its
 // ToneDescriptors without the "$[id]" prefix (e.g. "CLEAN", "CHORUS"); the game's tone banner
-// shows these tags.
+// shows these tags. amp is the GearList's amp key (e.g. "Amp_HG500", "" if none) and gain its
+// gain knob, 0-100 (the Plexi has two volume knobs instead: the higher counts), or -1 if unknown.
 #define RS_MAX_DESC 6
 typedef struct {
     char key[128];
@@ -63,6 +64,8 @@ typedef struct {
     char separator[8];
     char desc[RS_MAX_DESC][32];
     int ndesc;
+    char amp[64];
+    float gain;
 } rs_tone_def;
 
 // Parse a manifest's "Tones" array into out (at most max). Returns the number of tones.

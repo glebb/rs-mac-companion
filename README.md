@@ -147,9 +147,12 @@ re-read it while running. First match wins:
 1. `songs`: per arrangement and slot, e.g. `{"skid18an_lead": {"C": "Heavy"}}` (the app's
    changes go here)
 2. `tones`: per tone key, e.g. `{"skid18an_dist": "Crunch"}`
-3. `rules`: by the game's tone tags (CLEAN, DISTORTION, LEAD, OVERDRIVE, ACOUSTIC, BASS, ...) and
-   then by words in the tone's name
+3. `rules`: by the game's tone tags (CLEAN, DISTORTION, LEAD, OVERDRIVE, ACOUSTIC, BASS, ...), the
+   tone's amp and its gain setting, and then by words in the tone's name
 4. `default`
+
+Then `artists` can change what the rules gave for a whole band, e.g.
+`{"Bon Jovi": {"Heavy": "Crunch"}}` (overrides from 1 and 2 still win).
 
 RS Companion reads preset names as categories: Clean, Crunch, Heavy and Lead directly, others
 through `categories` (Distortion → Heavy, Acoustic → Clean, Bass → Clean, Bass Drive → Crunch).
@@ -168,14 +171,21 @@ song index at startup, and again when a song isn't in it.)
 - `all`: every one of these tags is required for the rule to be considered (combine it with
   `any`, e.g. `{"preset": "Bass Drive", "all": ["BASS"], "any": ["DISTORTION", "FUZZ"]}`);
 - `name`: matches if one of these words is a whole word in the tone key (`skid18an_dist` has
-  the words `skid`, `an`, `dist`), or, for words of 4+ letters, appears anywhere in it.
+  the words `skid`, `an`, `dist`), or, for words of 4+ letters, appears anywhere in it;
+- `amp`: required: the tone's amp is one of these (`"HG500"` or `"Amp_HG500"`; the amp keys are
+  in `tone_catalog.csv`);
+- `gain`: required: the amp's gain knob (0–100, as set in the tone) is at least this.
+
+A rule matches when all its required conditions hold and, if it has `any` or `name`, one of
+those matches too.
 
 Write tags in capitals, as the game does (`"HIGH GAIN"`, not `"high gain"`); tone keys and
 `name` words are compared in lower case.
 
 **The default rules**, in order: bass tones with drive tags → Bass Drive; other bass → Bass;
-ACOUSTIC → Acoustic; LEAD → Lead; DISTORTION / HIGH GAIN / FUZZ → Distortion (Heavy);
-OVERDRIVE → Crunch; clean and effect tags (CLEAN, CHORUS, REVERB, DELAY, ...) → Clean. Only
+ACOUSTIC → Acoustic; LEAD → Lead; HIGH GAIN → Distortion (Heavy); DISTORTION / FUZZ on a
+high-gain amp → Distortion (Heavy); other DISTORTION / FUZZ / OVERDRIVE → Crunch; clean and
+effect tags (CLEAN, CHORUS, REVERB, DELAY, ...) → Clean. Only
 then the tone's name is tried (`lead`, `solo`, `dist`, `metal`, `crunch`, `od`, `clean`, ...),
 and anything left goes to `default` (Clean). Order matters: a tone tagged LEAD + DISTORTION
 becomes Lead because the LEAD rule comes first.
@@ -184,18 +194,28 @@ becomes Lead because the LEAD rule comes first.
 - Custom songs sometimes have missing or generic tags; such tones fall back to their name and
   then to Clean.
 - Tags describe the kind of sound, not how much gain: a light crunch and a heavy rhythm tone
-  can both be tagged DISTORTION and both land on Heavy.
+  are both tagged DISTORTION. The amp rules tell them apart: modern high-gain amps (HG500,
+  JVM410H, JCM800, Rockerverb, and CA100, GB50, Tiny Terror, DSL100H above a gain setting) are
+  Heavy; amps used for both (GB100, HG100, HG180, CA85, EN50) only with gain 95 or more; vintage
+  and low-gain amps (TW, EN30, AT, BT, CA38, Plexi, JTM45, Bluesbreaker, ...) Crunch. Expect
+  about one band in four on the wrong side, e.g. Bon Jovi on Heavy or some Metallica on Crunch:
+  fix those with `artists`.
 - Everything ends up as one of four categories, so close tones share a preset.
 
 **Tuning it:**
 - One song wrong: change the tone's category in the window (saved under `songs`).
 - The same tone key wrong everywhere: add it under `tones`.
+- A whole band wrong: add it under `artists`, mapping what the rules give to what you want,
+  e.g. `{"Bon Jovi": {"Heavy": "Crunch"}, "Metallica": {"Crunch": "Heavy"}}`. The keys are a
+  preset or category name; the artist is compared as the game shows it, ignoring case.
 - The same kind of mistake across many songs: reorder or add `rules` (e.g. move the
   Distortion rule above Lead if you want distorted leads on Heavy). This fixes every song at
   once, and overrides you've set still win.
 - To see why a tone got its category, look in `rs-companion-app.log` (or `rstone.log`): each
-  tone line ends with the preset and the reason, e.g. `→ Heavy (Distortion, tags DISTORTION)`;
-  the reason is `song override`, `tone override`, `tags ...`, `name` or `default`.
+  tone line ends with the preset and the reason, e.g.
+  `→ Heavy (Distortion, tags DISTORTION, amp hg500 gain 88)`; the reason is `song override`,
+  `tone override`, `tags ...`, `name` or `default`, with `, artist ...` added when `artists`
+  changed it.
 
 ## Data folder
 

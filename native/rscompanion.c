@@ -679,9 +679,10 @@ static int read_timer(uint64_t addr, double *v) {
 // (DATA_DIR/events.sock). Sending never blocks: with no app listening, or its queue full, the
 // event is dropped. Every event is also logged as an "EVENT {json}" line, except heartbeats.
 //
-//   song   {"event":"song", song, artist, arrangement, tones:[{slot, tone, descriptors}],
+//   song   {"event":"song", song, artist, arrangement, tones:[{slot, tone, descriptors, amp, gain}],
 //          parts:[{arrangement, slots:{Base: key, A: key, ...}}] (every arrangement of the song)}
-//   tone   {"event":"tone", song, artist, arrangement, slot, tone, descriptors, source[, time]}
+//   tone   {"event":"tone", song, artist, arrangement, slot, tone, descriptors, amp, gain, source[, time]}
+//          (amp: the tone's amp key, gain: its gain knob 0-100 or null)
 //   state  heartbeat every second: {"event":"state", protocol, pid, lead_ms, timer_locked,
 //          and with a song: song, artist, arrangement, tones, parts, slot[, time]}
 //
@@ -739,7 +740,8 @@ static void add_song(char *ev, size_t size, const arrangement *a) {
     json_str(ev, size, a->name);
 }
 
-// "descriptors": [...] of the tone in a slot
+// "descriptors": [...], "amp": ..., "gain": ... of the tone in a slot (gain: the amp's gain knob,
+// 0-100, or null)
 static void add_descriptors(char *ev, size_t size, const arrangement *a, int slot) {
     strlcat(ev, "\"descriptors\": [", size);
     const rs_tone_def *d = tone_def(a, slot);
@@ -747,10 +749,15 @@ static void add_descriptors(char *ev, size_t size, const arrangement *a, int slo
         if (i) strlcat(ev, ", ", size);
         json_str(ev, size, d->desc[i]);
     }
-    strlcat(ev, "]", size);
+    strlcat(ev, "], \"amp\": ", size);
+    json_str(ev, size, d ? d->amp : "");
+    char g[32] = ", \"gain\": null";
+    if (d && d->gain >= 0) snprintf(g, sizeof g, ", \"gain\": %.4g", d->gain);
+    strlcat(ev, g, size);
 }
 
-// "tones": [{"slot": "Base", "tone": ..., "descriptors": [...]}, ...] for the slots in use
+// "tones": [{"slot": "Base", "tone": ..., "descriptors": [...], "amp": ..., "gain": ...}, ...] for
+// the slots in use
 static void add_tones(char *ev, size_t size, const arrangement *a) {
     strlcat(ev, "\"tones\": [", size);
     int n = 0;

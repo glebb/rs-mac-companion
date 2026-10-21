@@ -66,6 +66,10 @@ got_tones = [(t["slot"], t["tone"], t["descriptors"]) for t in songs[0]["tones"]
 print("   song event tones:", got_tones)
 if len(songs) != 1 or songs[0]["arrangement"] != "selftrap_rhythm" or got_tones != want_tones:
     problems.append(f"song event: expected one for selftrap_rhythm with tones {want_tones}")
+gear = {(e.get("amp"), e.get("gain")) for e in events if e["event"] == "tone"}
+gear |= {(t.get("amp"), t.get("gain")) for t in songs[0]["tones"]} if songs else set()
+if gear != {("Amp_TW40", 83)}:
+    problems.append(f"tone gear: expected amp Amp_TW40 gain 83 on every tone, got {gear}")
 parts = {p["arrangement"]: p["slots"] for p in songs[0].get("parts", [])} if songs else {}
 print("   song event parts:", {k: len(v) for k, v in parts.items()})
 if parts.get("selftrap_rhythm") != {"Base": "SelfTrap_clean", "A": "SelfTrap_clean", "B": "SelfTrap_dist"} \
