@@ -23,7 +23,7 @@ import time
 import paths
 
 BATCH = 50
-FORMAT = 2  # bump when rstool's output changes (2: tones have amp and gain)
+FORMAT = 3  # bump when rstool's output changes (2: tones have amp and gain; 3: rig, tuning, tempo)
 
 
 def archives(game_dir):

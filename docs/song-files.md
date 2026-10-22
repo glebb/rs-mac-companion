@@ -56,6 +56,9 @@ Paths that matter, per arrangement `<key>_<part>` (e.g. `skid18an_lead`):
 | `SongKey` | `Skid18an` (case varies; file names use lower case) |
 | `ArrangementName` | `Lead`, `Rhythm`, `Bass`, `Combo`, `Vocals` |
 | `Tone_Base`, `Tone_A` … `Tone_D` | tone keys per slot, e.g. `skid18an_clean` (empty if unused) |
+| `Tuning` | semitones per string, low to high: `{"string0": -2, "string1": 0, …}` (Drop D) |
+| `CentOffset` | cents from A440, e.g. `-50.0` for songs a quarter tone down |
+| `SongAverageTempo` | average BPM, e.g. `95.0` |
 | `Tones[]` | per tone: `Key`, `Name`, `ToneDescriptors` (e.g. `"$[35720]CLEAN"`), `GearList` (amp, cabinet, pedals, racks), `NameSeparator` |
 
 `ToneDescriptors` are the tone's tags; strip the `$[id]` prefix. Seen tags: CLEAN, DISTORTION,
@@ -68,6 +71,11 @@ Each `GearList` item (`Amp`, `Cabinet`, `PrePedal1`, `PostPedal1`, `Rack1`, ...)
 "Amp_TW22_Bass": 45.0, ...}}`. Every guitar amp has a `_Gain` knob (0–100) except the Plexi, which
 has `_Loudness1` and `_Loudness2` instead. Most distorted tones have gain 80–100 whatever the amp,
 so the gain only tells crunch from high gain together with the amp model.
+
+The song index keeps each tone's whole gear list as `rig`, every item's knobs named without the
+key's prefix: `{"Amp": {"key": "Amp_TW40", "knobs": {"Gain": 83, "Bass": 55, …}},
+"PrePedal2": {"key": "Pedal_GermaniumDrive", "knobs": {"Gain": 45, "Tone": 65}}, …}`, and each
+arrangement's `tuning` (six offsets, or null), `centOffset` and `tempo` (or null).
 
 Tone keys are almost always specific to one song (97% of the 7,177 keys in a library of
 ~2,400 archives), shared between the parts of that song (38% are used by more than one part). The 3% used

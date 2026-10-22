@@ -57,6 +57,9 @@ int rs_sng_tones(const uint8_t *sng, size_t len, rs_tone_change **out);
 // found, 0 if not (out is then ""). Handles the escapes used in manifests.
 int rs_json_str(const char *json, const char *key, char *out, size_t outlen);
 
+// The number value of the first "key": number in a JSON text into *out. Returns 1 if found.
+int rs_json_num(const char *json, const char *key, double *out);
+
 // A tone definition from a manifest's "Tones" array: its key, name, name separator and its
 // ToneDescriptors without the "$[id]" prefix (e.g. "CLEAN", "CHORUS"); the game's tone banner
 // shows these tags. amp is the GearList's amp key (e.g. "Amp_HG500", "" if none) and gain its
@@ -76,7 +79,11 @@ typedef struct {
 int rs_json_tones(const char *json, rs_tone_def *out, int max);
 
 // Like rs_json_tones, and also each tone's GearList as "Slot=Key" entries separated by ';'
-// (e.g. "Amp=Amp_AT20;Cabinet=Cab_EN212C_57_Cone") into gear[i] (gear_size bytes each).
-int rs_json_tones_gear(const char *json, rs_tone_def *out, char *gear, size_t gear_size, int max);
+// (e.g. "Amp=Amp_AT20;Cabinet=Cab_EN212C_57_Cone") into gear[i] (gear_size bytes each), and as
+// a JSON object with every item's knobs, named without the key's prefix, into rig[i] (rig_size
+// bytes each): {"Amp": {"key": "Amp_AT20", "knobs": {"Gain": 14, "Bass": 45, ...}}, ...}.
+// gear or rig may be NULL.
+int rs_json_tones_gear(const char *json, rs_tone_def *out, char *gear, size_t gear_size, char *rig, size_t rig_size,
+                       int max);
 
 #endif

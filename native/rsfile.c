@@ -332,6 +332,22 @@ int rs_json_str(const char *json, const char *key, char *out, size_t outlen) {
     return 0;
 }
 
+int rs_json_num(const char *json, const char *key, double *out) {
+    size_t kl = strlen(key);
+    for (const char *s = json; (s = strchr(s, '"')); s++) {
+        if (strncmp(s + 1, key, kl) || s[1 + kl] != '"') continue;
+        const char *v = s + 2 + kl;
+        while (*v == ' ' || *v == '\t' || *v == '\r' || *v == '\n') v++;
+        if (*v++ != ':') continue;
+        char *end;
+        double d = strtod(v, &end);
+        if (end == v) return 0;  // not a number
+        *out = d;
+        return 1;
+    }
+    return 0;
+}
+
 // --- Minimal JSON walking for the "Tones" array ---
 
 static const char *ws(const char *p) {
@@ -381,22 +397,25 @@ static int ends_with_str(const char *s, const char *suffix) {
     return a >= b && !strcmp(s + a - b, suffix);
 }
 
-// "KnobValues": {"Amp_HG500_Gain": 88.0, ...} -> the gain knob (or the higher Loudness knob,
-// which the Plexi has instead), or -1.
-static const char *jgain(const char *p, float *gain) {
-    *gain = -1;
+#define RS_MAX_KNOBS 32
+
+// "KnobValues": {"Amp_HG500_Gain": 88.0, ...} -> up to RS_MAX_KNOBS names and values; *n gets
+// their number.
+static const char *jknobs(const char *p, char names[][64], double *values, int *n) {
+    *n = 0;
     if (*p != '{') return jskip(p);
     for (p = ws(p + 1); p && *p == '"';) {
-        char name[128];
+        char name[64];
         p = jstr(p, name, sizeof name);
         if (!p) return NULL;
         p = ws(p);
         if (*p++ != ':') return NULL;
         p = ws(p);
-        if (ends_with_str(name, "_Gain") || ends_with_str(name, "_Loudness1") || ends_with_str(name, "_Loudness2")) {
-            char *end;
-            double v = strtod(p, &end);
-            if (end != p && v > *gain) *gain = (float)v;
+        char *end;
+        double v = strtod(p, &end);
+        if (end != p && *n < RS_MAX_KNOBS) {
+            snprintf(names[*n], 64, "%s", name);
+            values[(*n)++] = v;
         }
         p = jskip(p);
         if (!p) return NULL;
@@ -406,20 +425,38 @@ static const char *jgain(const char *p, float *gain) {
     return p && *p == '}' ? p + 1 : NULL;
 }
 
+// Appends s to out as a JSON string (keys and knob names are plain ASCII; quotes and
+// backslashes are escaped, control characters dropped).
+static void jappend_str(char *out, size_t outlen, const char *s) {
+    size_t n = strlen(out);
+    if (n + 1 < outlen) out[n++] = '"';
+    for (; *s && n + 2 < outlen; s++) {
+        if ((unsigned char)*s < 0x20) continue;
+        if (*s == '"' || *s == '\\') out[n++] = '\\';
+        out[n++] = *s;
+    }
+    if (n + 1 < outlen) out[n++] = '"';
+    out[n < outlen ? n : outlen - 1] = 0;
+}
+
 // "GearList": {"Amp": {"Key": "Amp_AT20", ...}, "Cabinet": {...}, ...} -> "Amp=Amp_AT20;Cabinet=..."
-// into out (if not NULL), and the amp's key and gain into t.
-static const char *jgear(const char *p, char *out, size_t outlen, rs_tone_def *t) {
+// into out and, as a JSON object, every item's key and knobs into rig (each if not NULL), and the
+// amp's key and gain into t. The gain is the amp's _Gain knob, or the higher Loudness knob,
+// which the Plexi has instead.
+static const char *jgear(const char *p, char *out, size_t outlen, char *rig, size_t riglen, rs_tone_def *t) {
+    if (rig && riglen) snprintf(rig, riglen, "{}");
     if (*p != '{') return jskip(p);
+    if (rig && riglen) rig[1] = 0;
     for (p = ws(p + 1); p && *p == '"';) {
-        char slot[64], key[128] = "";
-        int has_key = 0;
-        float gain = -1;
+        char slot[64], key[128] = "", knobs[RS_MAX_KNOBS][64];
+        double values[RS_MAX_KNOBS];
+        int has_key = 0, nknobs = 0;
         p = jstr(p, slot, sizeof slot);
         if (!p) return NULL;
         p = ws(p);
         if (*p++ != ':') return NULL;
         p = ws(p);
-        if (*p == '{') {  // a gear item: find its "Key" (and an amp's gain)
+        if (*p == '{') {  // a gear item: find its "Key" and knobs
             for (p = ws(p + 1); p && *p == '"';) {
                 char name[64];
                 p = jstr(p, name, sizeof name);
@@ -428,7 +465,7 @@ static const char *jgear(const char *p, char *out, size_t outlen, rs_tone_def *t
                 if (*p++ != ':') return NULL;
                 p = ws(p);
                 if (!strcmp(name, "Key") && *p == '"') p = jstr(p, key, sizeof key), has_key = 1;
-                else if (!strcmp(name, "KnobValues") && !strcmp(slot, "Amp")) p = jgain(p, &gain);
+                else if (!strcmp(name, "KnobValues")) p = jknobs(p, knobs, values, &nknobs);
                 else p = jskip(p);
                 if (!p) return NULL;
                 p = ws(p);
@@ -438,13 +475,35 @@ static const char *jgear(const char *p, char *out, size_t outlen, rs_tone_def *t
             p++;
             if (!strcmp(slot, "Amp") && has_key) {
                 snprintf(t->amp, sizeof t->amp, "%s", key);
-                t->gain = gain;
+                t->gain = -1;
+                for (int k = 0; k < nknobs; k++)
+                    if ((ends_with_str(knobs[k], "_Gain") || ends_with_str(knobs[k], "_Loudness1") ||
+                         ends_with_str(knobs[k], "_Loudness2")) && values[k] > t->gain)
+                        t->gain = (float)values[k];
             }
             if (out && outlen && has_key) {  // items without a key (e.g. no cabinet) are left out
                 if (out[0]) strlcat(out, ";", outlen);
                 strlcat(out, slot, outlen);
                 strlcat(out, "=", outlen);
                 strlcat(out, key, outlen);
+            }
+            if (rig && riglen && has_key) {  // "Amp": {"key": "Amp_TW40", "knobs": {"Gain": 83, ...}}
+                if (rig[1]) strlcat(rig, ", ", riglen);
+                jappend_str(rig, riglen, slot);
+                strlcat(rig, ": {\"key\": ", riglen);
+                jappend_str(rig, riglen, key);
+                strlcat(rig, ", \"knobs\": {", riglen);
+                size_t kl = strlen(key);
+                for (int k = 0; k < nknobs; k++) {  // "Amp_TW40_Gain" -> "Gain"
+                    const char *n = knobs[k];
+                    if (!strncmp(n, key, kl) && n[kl] == '_') n += kl + 1;
+                    char num[32];
+                    snprintf(num, sizeof num, ": %.6g", values[k]);
+                    if (k) strlcat(rig, ", ", riglen);
+                    jappend_str(rig, riglen, n);
+                    strlcat(rig, num, riglen);
+                }
+                strlcat(rig, "}}", riglen);
             }
         } else {
             p = jskip(p);
@@ -453,10 +512,12 @@ static const char *jgear(const char *p, char *out, size_t outlen, rs_tone_def *t
         p = ws(p);
         if (*p == ',') p = ws(p + 1);
     }
+    if (rig && riglen) strlcat(rig, "}", riglen);
     return p && *p == '}' ? p + 1 : NULL;
 }
 
-static int parse_tones(const char *json, rs_tone_def *out, char *gear, size_t gear_size, int max) {
+static int parse_tones(const char *json, rs_tone_def *out, char *gear, size_t gear_size, char *rig,
+                       size_t rig_size, int max) {
     const char *p = strstr(json, "\"Tones\"");
     if (!p) return 0;
     p = ws(p + 7);
@@ -467,9 +528,11 @@ static int parse_tones(const char *json, rs_tone_def *out, char *gear, size_t ge
     for (p = ws(p + 1); p && *p == '{' && n < max; p = ws(p)) {
         rs_tone_def *t = &out[n];
         char *g = gear ? gear + (size_t)n * gear_size : NULL;
+        char *r = rig ? rig + (size_t)n * rig_size : NULL;
         memset(t, 0, sizeof *t);
         t->gain = -1;
         if (g) g[0] = 0;
+        if (r) snprintf(r, rig_size, "{}");
         for (p = ws(p + 1); p && *p == '"';) {
             char name[64];
             p = jstr(p, name, sizeof name);
@@ -484,7 +547,7 @@ static int parse_tones(const char *json, rs_tone_def *out, char *gear, size_t ge
             } else if (!strcmp(name, "NameSeparator") && *p == '"') {
                 p = jstr(p, t->separator, sizeof t->separator);
             } else if (!strcmp(name, "GearList")) {
-                p = jgear(p, g, gear_size, t);
+                p = jgear(p, g, gear_size, r, rig_size, t);
             } else if (!strcmp(name, "ToneDescriptors") && *p == '[') {
                 for (p = ws(p + 1); p && *p == '"'; p = ws(p)) {
                     char d[64];
@@ -512,8 +575,9 @@ static int parse_tones(const char *json, rs_tone_def *out, char *gear, size_t ge
     return n;
 }
 
-int rs_json_tones(const char *json, rs_tone_def *out, int max) { return parse_tones(json, out, NULL, 0, max); }
+int rs_json_tones(const char *json, rs_tone_def *out, int max) { return parse_tones(json, out, NULL, 0, NULL, 0, max); }
 
-int rs_json_tones_gear(const char *json, rs_tone_def *out, char *gear, size_t gear_size, int max) {
-    return parse_tones(json, out, gear, gear_size, max);
+int rs_json_tones_gear(const char *json, rs_tone_def *out, char *gear, size_t gear_size, char *rig, size_t rig_size,
+                       int max) {
+    return parse_tones(json, out, gear, gear_size, rig, rig_size, max);
 }
