@@ -59,6 +59,7 @@ Paths that matter, per arrangement `<key>_<part>` (e.g. `skid18an_lead`):
 | `Tuning` | semitones per string, low to high: `{"string0": -2, "string1": 0, …}` (Drop D) |
 | `CentOffset` | cents from A440, e.g. `-50.0` for songs a quarter tone down |
 | `SongAverageTempo` | average BPM, e.g. `95.0` |
+| `SongLength` | seconds, e.g. `177.441` |
 | `Tones[]` | per tone: `Key`, `Name`, `ToneDescriptors` (e.g. `"$[35720]CLEAN"`), `GearList` (amp, cabinet, pedals, racks), `NameSeparator` |
 
 `ToneDescriptors` are the tone's tags; strip the `$[id]` prefix. Seen tags: CLEAN, DISTORTION,
@@ -75,7 +76,7 @@ so the gain only tells crunch from high gain together with the amp model.
 The song index keeps each tone's whole gear list as `rig`, every item's knobs named without the
 key's prefix: `{"Amp": {"key": "Amp_TW40", "knobs": {"Gain": 83, "Bass": 55, …}},
 "PrePedal2": {"key": "Pedal_GermaniumDrive", "knobs": {"Gain": 45, "Tone": 65}}, …}`, and each
-arrangement's `tuning` (six offsets, or null), `centOffset` and `tempo` (or null).
+arrangement's `tuning` (six offsets, or null), `centOffset`, `tempo` and `length` (or null).
 
 Tone keys are almost always specific to one song (97% of the 7,177 keys in a library of
 ~2,400 archives), shared between the parts of that song (38% are used by more than one part). The 3% used

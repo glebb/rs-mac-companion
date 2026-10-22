@@ -33,7 +33,7 @@ static void toc(rs_psarc *p) {
 
 // One JSON line per arrangement, the song index format (index_songs.py): arrangement, path,
 // song, artist, songKey, persistentId, source, tuning (semitones per string, low to high, or
-// null), centOffset, tempo (average BPM, or null), slots, tones [{key, name, descriptors,
+// null), centOffset, tempo (average BPM, or null), length (seconds, or null), slots, tones [{key, name, descriptors,
 // separator, amp, gain (amp gain knob 0-100 or null), gear, rig}], changes [[time, slot id]].
 static void tones(rs_psarc *p, const char *archive) {
     for (uint32_t i = 0; i < p->n; i++) {
@@ -56,7 +56,7 @@ static void tones(rs_psarc *p, const char *archive) {
         rs_json_str(json, "SongKey", song_key, sizeof song_key);
         rs_json_str(json, "PersistentID", pid, sizeof pid);
         for (int s = 0; s < 5; s++) rs_json_str(json, slot_keys[s], slots[s], sizeof slots[s]);
-        double tuning[6], cents = 0, tempo = -1;
+        double tuning[6], cents = 0, tempo = -1, length = -1;
         const char *t = strstr(json, "\"Tuning\"");
         int tuned = t != NULL;
         for (int s = 0; s < 6 && tuned; s++) {
@@ -66,6 +66,7 @@ static void tones(rs_psarc *p, const char *archive) {
         }
         rs_json_num(json, "CentOffset", &cents);
         rs_json_num(json, "SongAverageTempo", &tempo);
+        rs_json_num(json, "SongLength", &length);
         static rs_tone_def defs[32];
         static char gear[32][512], rig[32][4096];
         int ndefs = rs_json_tones_gear(json, defs, &gear[0][0], sizeof gear[0], &rig[0][0], sizeof rig[0], 32);
@@ -104,6 +105,9 @@ static void tones(rs_psarc *p, const char *archive) {
         else printf("null");
         printf(", \"centOffset\": %g, \"tempo\": ", cents);
         if (tempo > 0) printf("%g", tempo);
+        else printf("null");
+        printf(", \"length\": ");
+        if (length > 0) printf("%g", length);
         else printf("null");
         printf(", \"slots\": [");
         for (int s = 0; s < 5; s++) {

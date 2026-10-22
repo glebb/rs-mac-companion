@@ -9,7 +9,7 @@ emulator is an acoustic guitar sound: clean whatever the amp."""
 # Amp key without "Amp_" -> (gain where it starts to break up, gain where it gets heavy, or None
 # if it never does).
 AMPS = {
-    "HG500": (25, 50), "MarshallJVM410H": (25, 50), "MarshallJCM800": (35, 75),
+    "HG500": (30, 70), "MarshallJVM410H": (25, 50), "MarshallJCM800": (35, 75),
     "OrangeRockerverb": (30, 55), "OrangeJimmyBean": (25, 50),
     "CA100": (30, 50), "GB50": (40, 70), "OrangeTinyTerror": (40, 70),
     "MarshallDSL100H": (40, 80), "MarshallDSL15H": (40, 80),
@@ -153,22 +153,41 @@ def tone_def(arrangement, key):
             or (tones[0] if len(tones) == 1 else None))
 
 
-def song_heaviness(arrangements):
-    """How heavy a song is, 0-1, from its guitar arrangements: the most distorted tone any of
-    them uses, plus 0.1 when the low string is tuned down to C or lower. None without guitar
-    tones."""
-    drives, low = [], 0
-    for a in arrangements:
-        if a["path"] not in GUITAR_PATHS:
-            continue
-        for key in {k.lower() for k in a["slots"] if k}:
-            t = tone_def(a, key)
-            if t and t.get("rig"):
-                d = drive(t["rig"], t.get("gain"))
-                if d is not None:
-                    drives.append(d)
-        if a.get("tuning"):
-            low = min(low, a["tuning"][0] + (a.get("centOffset") or 0) / 100)
-    if not drives:
+def tone_times(arrangement):
+    """Seconds each slot's tone key plays: Base until the first change, then the slot each change
+    picks (A-D), up to the song's length (or the last change, if the length is unknown)."""
+    slots, changes = arrangement["slots"], arrangement["changes"]
+    end = arrangement.get("length") or (changes[-1][0] if changes else 0)
+    times, key, start = {}, slots[0], 0.0
+    for t, slot in changes + [[end, None]]:
+        if key:
+            times[key] = times.get(key, 0) + max(min(t, end) - start, 0)
+        if slot is not None and 0 <= slot < 4:
+            key, start = slots[1 + slot] or key, t
+    return times
+
+
+def main_tone(arrangement):
+    """The tone the arrangement plays longest, or None."""
+    times = tone_times(arrangement)
+    if not times:
         return None
-    return min(max(drives) + (0.1 if low <= -4 else 0), 1.0)
+    return tone_def(arrangement, max(times, key=times.get))
+
+
+def song_heaviness(arrangements):
+    """How heavy a song is, 0-1: the drive of the tone its rhythm part (else its combo or lead
+    part) plays longest, plus 0.1 when the low string is tuned down to C or lower. A heavy solo
+    or bridge doesn't make a song heavy; what it sounds like most of the time does. None without
+    a guitar tone."""
+    for path in ("Rhythm", "Combo", "Lead"):
+        for a in arrangements:
+            if a["path"] != path:
+                continue
+            t = main_tone(a)
+            d = drive(t["rig"], t.get("gain")) if t and t.get("rig") else None
+            if d is None:
+                continue
+            low = a["tuning"][0] + (a.get("centOffset") or 0) / 100 if a.get("tuning") else 0
+            return min(d + (0.1 if low <= -4 else 0), 1.0)
+    return None
