@@ -283,7 +283,7 @@ Build with `./build.sh` (Command Line Tools only): `build/rsprobe`, `build/rstoo
 
 | Tool | |
 |---|---|
-| `python3 make_catalog.py` | `tone_catalog.csv` (every tone: tags, preset, how it matched, amp, pedals, how many songs use it) and `songs.csv` (every arrangement with its tones and presets), from the song index |
+| `python3 make_catalog.py` | `tone_catalog.csv` (every tone: tags, preset, how it matched, amp, pedals, drive 0–1 with clean / crunch / heavy, its delay, reverb and modulation, how many songs use it) and `songs.csv` (every arrangement with its tuning, tempo, the song's heaviness, its tones, presets and drives), from the song index; the scores come from `rig.py` |
 | `build/rstool toc\|tones <archive.psarc>` | list an archive's entries with their byte ranges / print its arrangements' tone data as JSON |
 | `python3 tools/event_listener.py` | print the events the game's library sends (quit RS Companion first: only one can listen) |
 | `build/midi_monitor` | print MIDI from the "Rocksmith Companion" source (`swiftc -O tools/midi_monitor.swift -o build/midi_monitor`) |
@@ -321,7 +321,7 @@ Documentation: [how it works](docs/how-it-works.md), [the game's memory](docs/ga
 | `native/rsprobe.c` | external mode | the memory reader |
 | `native/rstool.c`, `index_songs.py` | external mode | song file reader front end and the song index |
 | `presets.py`, `paths.py`, `game_profile.json` | external mode | mapping, where things live, values tied to one game build |
-| `make_catalog.py`, `tools/`, `tests/` | developer tools | see above |
+| `make_catalog.py`, `rig.py`, `tools/`, `tests/` | developer tools | see above; `rig.py` scores what a tone's gear does |
 | `docs/` | | documentation |
 
 ## Dependencies
