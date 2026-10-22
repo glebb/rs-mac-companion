@@ -73,9 +73,15 @@ buttons (Stagehand shows the playing tone's name). The template rigs keep four b
    values, the tuning, cent offset and average tempo; index format 3.
 2. **Companion: heaviness score and effect details** per tone and per song, shown in the
    catalog to check the thresholds against a real library.
-3. **Stagehand: probe the speaker** (needs the speaker): how fast writes can go, whether a tone
-   that is not playing can be edited and saved (filling scratch tones silently), how many user
-   tones fit, saving into an existing user tone.
+3. **Stagehand: probe the speaker** (done 2026-10-22, `ScratchProbe.app`; details in Stagehand's
+   protocol-notes.md). Any tone can be read without switching to it. A tone that isn't playing
+   can be edited (model, knob, on/off) and saved without the channel switching, so scratch
+   tones can be filled silently, but the save renames the tone to the playing tone's name, so
+   Stagehand renames it back. One write takes ~60 ms with response: a few pedal changes per
+   tone fit the 3.3 s easily, a full copy of a template (~35 writes, ~2 s) only for the first
+   tone, so a scratch tone keeps its template from song to song where it can. Save as switches
+   the channel to the new tone. 69 user tones fit, but the tone library reply breaks above ~60,
+   so five scratch tones are fine. Not yet heard: whether such edits change the playing sound.
 4. **Stagehand: rigs** (named sets of tone buttons, CC 90).
 5. **Stagehand: the Rocksmith rig** — five scratch tones it creates on first use, the SysEx
    load message, diff-and-write, save. (Started: Stagehand reads the message and plans each scratch
