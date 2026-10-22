@@ -78,6 +78,8 @@ buttons (Stagehand shows the playing tone's name). The template rigs keep four b
    tones fit, saving into an existing user tone.
 4. **Stagehand: rigs** (named sets of tone buttons, CC 90).
 5. **Stagehand: the Rocksmith rig** — five scratch tones it creates on first use, the SysEx
-   load message, diff-and-write, save.
-6. **Companion: send the load message** at song load, then PC 8–12 for the scratch tones; per
+   load message, diff-and-write, save. (Started: Stagehand reads the message and plans each scratch
+   tone's writes, `Sources/Shared/ScratchTones.swift`; making, filling and saving the tones on
+   the speaker waits for step 3's answers. Probe: `ScratchProbe.app`.)
+6. **Companion: send the load message** (done: `app/Sources/SongTones.swift`, setting "song_tones") at song load, then PC 8–12 for the scratch tones; per
    artist / per song rig overrides in presets.json.

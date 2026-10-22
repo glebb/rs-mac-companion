@@ -34,6 +34,17 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            section("Song-made tones (Stagehand)") {
+                Toggle("Build each song's tones", isOn: binding(\.songTones))
+                Text("When a song loads, Stagehand builds up to five tones for it from your rig's tones and the "
+                     + "song's effects, and Program Change 8–12 switch between them. The rig comes from the song's "
+                     + "heaviness (\"rigs\" and \"song_rigs\" in presets.json).")
+                    .font(.caption).foregroundStyle(.secondary)
+                if companion.settings.songTones, let made = companion.madeTones {
+                    Text(made.summary).font(.caption).lineLimit(3)
+                }
+            }
+
             section("Timing") {
                 Stepper(value: binding(\.leadMs), in: 0...1000, step: 25) {
                     Text("Switch \(companion.settings.leadMs) ms early")

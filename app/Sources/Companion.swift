@@ -14,7 +14,9 @@ struct ToneRow: Identifiable, Equatable {
 }
 
 /// Receives the dylib's events, keeps the current song and tone, maps tones to categories with
-/// presets.json, and sends a Program Change when the active tone's category changes.
+/// presets.json, and sends a Program Change when the active tone's category changes. With
+/// song-made tones on, it also has Stagehand build the song's tones when a song loads
+/// (SongTones.swift) and switches between those instead.
 @MainActor
 final class Companion: ObservableObject {
     static let shared = Companion()
@@ -29,6 +31,7 @@ final class Companion: ObservableObject {
     @Published private(set) var leadMs = 100
     @Published private(set) var lastHeartbeat: Date?
     @Published private(set) var lastMIDI: String?
+    @Published private(set) var madeTones: SongTones?   // the song-made tones sent for this song
     @Published private(set) var problem: String?
     @Published var paused = false
     @Published private(set) var settings: Settings
@@ -44,7 +47,9 @@ final class Companion: ObservableObject {
     private var socket: EventSocket?
     private let midi = MIDIOut()
     private let presets: Presets
-    private var sentCategory: Category?
+    private var sentProgram: Int?
+    private var archive = ""
+    private var songTonesKey = ""   // archive|arrangement the song-made tones were made for
     private var active: GameEvent.Tone?
     private var songTones: [GameEvent.Tone] = []
     private var songParts: [GameEvent.Part] = []
@@ -163,8 +168,8 @@ final class Companion: ObservableObject {
     }
 
     func resend() {
-        sentCategory = nil
-        if let category = activeCategory { send(category, reason: "resend") }
+        sentProgram = nil
+        send(reason: "resend")
     }
 
     /// Saves new settings (shared with the dylib, which picks up lead_ms within a second) and
@@ -172,12 +177,16 @@ final class Companion: ObservableObject {
     func update(_ new: Settings) {
         guard new != settings else { return }
         let midiChanged = new.channel != settings.channel || new.programs != settings.programs
+            || new.songTones != settings.songTones
         settings = new
         new.save(to: settingsPath)
         settingsModified = Self.modified(settingsPath)
         record("settings: channel \(new.channel), programs \(new.programs), lead \(new.leadMs) ms, overlays "
-            + (new.overlayEnabled ? "on (port \(new.overlayPort))" : "off"))
-        if midiChanged { resend() }
+            + (new.overlayEnabled ? "on (port \(new.overlayPort))" : "off") + ", song tones " + (new.songTones ? "on" : "off"))
+        if midiChanged {
+            makeSongTones()
+            resend()
+        }
         overlay.configure(enabled: new.overlayEnabled, port: new.overlayPort)
     }
 
@@ -190,7 +199,7 @@ final class Companion: ObservableObject {
     func setPaused(_ value: Bool) {
         paused = value
         record(value ? "MIDI paused" : "MIDI resumed")
-        if !value, let category = activeCategory, category != sentCategory { send(category, reason: "resumed") }
+        if !value { send(reason: "resumed") }
     }
 
     /// Sets (category) or removes (nil: back to automatic) the override for a tone in every
@@ -216,9 +225,14 @@ final class Companion: ObservableObject {
         let new = Settings.load(from: settingsPath)
         guard new != settings else { return }
         let midiChanged = new.channel != settings.channel || new.programs != settings.programs
+            || new.songTones != settings.songTones
         settings = new
-        record("rscompanion.json changed: channel \(new.channel), programs \(new.programs), lead \(new.leadMs) ms")
-        if midiChanged { resend() }
+        record("rscompanion.json changed: channel \(new.channel), programs \(new.programs), lead \(new.leadMs) ms, "
+            + "song tones " + (new.songTones ? "on" : "off"))
+        if midiChanged {
+            makeSongTones()
+            resend()
+        }
         overlay.configure(enabled: new.overlayEnabled, port: new.overlayPort)
     }
 
@@ -248,7 +262,7 @@ final class Companion: ObservableObject {
             let when = e.time.map { String(format: " at %.2f s", $0) } ?? ""
             record("tone \(slot) \(key) [\(descriptors.joined(separator: " "))] from \(e.source ?? "?")\(when)"
                 + " → \(m.category.name) (\(m.preset), \(m.reason))")
-            send(m.category, reason: key)
+            send(reason: key)
         case "state":
             lastHeartbeat = Date()
             timerLocked = e.timer_locked ?? false
@@ -266,7 +280,7 @@ final class Companion: ObservableObject {
                 activeSlot = slot
                 activeCategory = m.category
                 record("caught up: tone \(slot) \(key) → \(m.category.name)")
-                send(m.category, reason: key)
+                send(reason: key)
             }
         default:
             break
@@ -277,9 +291,49 @@ final class Companion: ObservableObject {
         song = e.song
         artist = e.artist ?? ""
         arrangement = e.arrangement ?? ""
+        archive = e.archive ?? archive
         if let list = e.tones { songTones = list }
         if let list = e.parts { songParts = list }
         tones = rows()
+        makeSongTones()
+    }
+
+    /// With song-made tones on, reads the song's gear from its archive and sends Stagehand the
+    /// tones to build (once per arrangement; again when the setting or the mapping changes).
+    private func makeSongTones(force: Bool = false) {
+        guard settings.songTones, let song, !arrangement.isEmpty, !archive.isEmpty else {
+            if !settings.songTones { madeTones = nil }
+            return
+        }
+        let key = archive + "|" + arrangement
+        guard force || key != songTonesKey else { return }
+        songTonesKey = key
+        let prefix = arrangement.lastIndex(of: "_").map { String(arrangement[..<$0]) } ?? arrangement
+        let t0 = Date()
+        guard let arrangements = Rig.read(archive: archive, prefix: prefix),
+              let made = SongTones.make(song: song, artist: artist, arrangement: arrangement, from: arrangements,
+                                        category: { slot, key in
+                                            self.match(GameEvent.Tone(slot: slot, tone: key, descriptors: self.descriptors(key)))
+                                                .category
+                                        },
+                                        rig: { self.presets.rig(heaviness: $0, artist: self.artist, songKey: prefix) })
+        else {
+            madeTones = nil
+            return record("song tones: could not read \(arrangement) from \(archive)")
+        }
+        madeTones = made
+        let message = made.json
+        if paused {
+            return record("paused: would send song tones \(made.summary)")
+        }
+        midi.sysex([0x7D] + Array(message.utf8))
+        record(String(format: "MIDI SysEx song tones (%d bytes, %.0f ms) %@", message.utf8.count + 1,
+                      Date().timeIntervalSince(t0) * 1000, made.summary))
+    }
+
+    /// A tone key's tags, from the song event.
+    private func descriptors(_ key: String) -> [String] {
+        songTones.first { $0.tone.lowercased() == key.lowercased() }?.descriptors ?? []
     }
 
     private func rows() -> [ToneRow] {
@@ -297,7 +351,8 @@ final class Companion: ObservableObject {
         guard let a = active else { return }
         let m = match(a)
         activeCategory = m.category
-        send(m.category, reason: "\(a.tone) (\(reason))")
+        makeSongTones(force: true)  // the template categories may have changed
+        send(reason: "\(a.tone) (\(reason))")
     }
 
     private func match(_ t: GameEvent.Tone, overrides: Bool = true) -> Presets.Match {
@@ -306,20 +361,28 @@ final class Companion: ObservableObject {
                       artist: artist, overrides: overrides)
     }
 
-    /// Sends only when the category changes: many devices drop unsaved edits on every preset
-    /// change, so the same category is never sent twice in a row.
-    private func send(_ category: Category, reason: String) {
-        guard category != sentCategory else { return }
+    /// The program for the active tone: its song-made tone's, or its category's.
+    private func target() -> (program: Int, label: String)? {
+        guard let category = activeCategory else { return nil }
+        if settings.songTones, let tone = active, let program = madeTones?.program(for: tone.tone) {
+            return (program, "song tone, \(category.name)")
+        }
+        return (settings.program(for: category), category.name)
+    }
+
+    /// Sends only when the program changes: many devices drop unsaved edits on every preset
+    /// change, so the same program is never sent twice in a row.
+    private func send(reason: String) {
+        guard let (program, label) = target(), program != sentProgram else { return }
         guard !paused else {
-            record("paused: would send PC \(settings.program(for: category)) (\(category.name))")
+            record("paused: would send PC \(program) (\(label))")
             return
         }
-        let program = settings.program(for: category)
         midi.programChange(program, channel: settings.channel)
-        sentCategory = category
+        sentProgram = program
         let clock = Date().formatted(date: .omitted, time: .standard)
-        lastMIDI = "PC \(program) ch \(settings.channel) (\(category.name)) · \(clock)"
-        record("MIDI PC \(program) ch \(settings.channel) (\(category.name)) for \(reason)")
+        lastMIDI = "PC \(program) ch \(settings.channel) (\(label)) · \(clock)"
+        record("MIDI PC \(program) ch \(settings.channel) (\(label)) for \(reason)")
     }
 
     private let stampFormat: DateFormatter = {

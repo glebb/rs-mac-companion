@@ -18,6 +18,28 @@ final class MIDIOut {
         send(0xC0 | UInt32((channel - 1) & 0x0F), program)
     }
 
+    /// A System Exclusive message: `data` is what goes between F0 and F7 (7-bit bytes; the top
+    /// bit is dropped). Sent as MIDI 1.0 UMP SysEx7 packets, 6 bytes each, in order.
+    func sysex(_ data: [UInt8]) {
+        guard error == nil else { return }
+        let body = data.map { $0 & 0x7F }
+        let chunks = stride(from: 0, to: max(body.count, 1), by: 6).map { Array(body[$0..<min($0 + 6, body.count)]) }
+        let list = UnsafeMutablePointer<MIDIEventList>.allocate(capacity: 1)
+        defer { list.deallocate() }
+        // A list holds one packet of up to 64 words: 32 two-word SysEx7 messages per send.
+        for start in stride(from: 0, to: chunks.count, by: 32) {
+            var packet = MIDIEventListInit(list, ._1_0)
+            for i in start..<min(start + 32, chunks.count) {
+                let status: UInt32 = chunks.count == 1 ? 0 : i == 0 ? 1 : i == chunks.count - 1 ? 3 : 2  // complete, start, continue, end
+                let b = (chunks[i] + [0, 0, 0, 0, 0, 0]).map(UInt32.init)
+                var words: [UInt32] = [0x3000_0000 | status << 20 | UInt32(chunks[i].count) << 16 | b[0] << 8 | b[1],
+                                       b[2] << 24 | b[3] << 16 | b[4] << 8 | b[5]]
+                packet = MIDIEventListAdd(list, MemoryLayout<MIDIEventList>.size, packet, 0, 2, &words)
+            }
+            MIDIReceivedEventList(source, list)
+        }
+    }
+
     private func send(_ status: UInt32, _ data1: Int, _ data2: Int = 0) {
         guard error == nil else { return }
         var list = MIDIEventList()

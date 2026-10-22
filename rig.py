@@ -77,14 +77,13 @@ def drive(rig, gain=None):
         return None
     if any(item["key"] in ACOUSTIC for item in rig.values()):
         return min(d, 0.25)
-    for slot, item in rig.items():
-        if "Pedal" not in slot:
-            continue
-        g = min(max(_knob(item, "Gain", "Boost") or 0, 0), 100) / 100
-        if item["key"] in BOOST_PEDALS:
-            d += BOOST_PEDALS[item["key"]] * g
-        elif item["key"] in DISTORTION_PEDALS:
-            floor, span = DISTORTION_PEDALS[item["key"]]
+    pedals = [(item["key"], min(max(_knob(item, "Gain", "Boost") or 0, 0), 100) / 100)
+              for slot, item in rig.items() if "Pedal" in slot]
+    # Boosts first, then the pedals that distort by themselves (so the order doesn't matter).
+    d += sum(BOOST_PEDALS[k] * g for k, g in pedals if k in BOOST_PEDALS)
+    for k, g in pedals:
+        if k in DISTORTION_PEDALS:
+            floor, span = DISTORTION_PEDALS[k]
             d = max(d, floor + span * g)
     return min(d, 1.0)
 
@@ -104,7 +103,7 @@ def effects(rig):
         if kind not in out or (value.get("mix") or 0) > (out[kind].get("mix") or 0):
             out[kind] = value
 
-    for slot, item in rig.items():
+    for slot, item in sorted(rig.items()):  # ties go to the first in slot order
         key, knobs = item["key"], item["knobs"]
         if slot in ("Amp", "Cabinet"):
             continue
@@ -163,7 +162,8 @@ def tone_times(arrangement):
         if key:
             times[key] = times.get(key, 0) + max(min(t, end) - start, 0)
         if slot is not None and 0 <= slot < 4:
-            key, start = slots[1 + slot] or key, t
+            key = slots[1 + slot] or key
+        start = t
     return times
 
 
@@ -179,9 +179,9 @@ def song_heaviness(arrangements):
     """How heavy a song is, 0-1: the drive of the tone its rhythm part (else its combo or lead
     part) plays longest, plus 0.1 when the low string is tuned down to C or lower. A heavy solo
     or bridge doesn't make a song heavy; what it sounds like most of the time does. None without
-    a guitar tone."""
+    a guitar tone. Of several parts of a kind (combo, combo2) the first by name counts."""
     for path in ("Rhythm", "Combo", "Lead"):
-        for a in arrangements:
+        for a in sorted(arrangements, key=lambda a: a["arrangement"].lower()):  # main part before alternates
             if a["path"] != path:
                 continue
             t = main_tone(a)

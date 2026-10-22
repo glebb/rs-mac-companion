@@ -121,6 +121,25 @@ final class Presets {
         return (data["default"] as? String ?? "Clean", "default")
     }
 
+    /// The rig (a set of tone buttons in Stagehand) for song-made tones: "song_rigs" names one for
+    /// a song key or an artist (song key first); otherwise the last of "rigs" whose "from" the
+    /// song's heaviness reaches. Without a "rigs" section: Soft, Classic rock (0.4), Metal (0.75).
+    func rig(heaviness: Double?, artist: String, songKey: String) -> String {
+        let named = ((data["song_rigs"] as? [String: Any]) ?? [:]).reduce(into: [String: String]()) {
+            if let v = $1.value as? String { $0[$1.key.trimmingCharacters(in: .whitespaces).lowercased()] = v }
+        }
+        if let r = named[songKey.lowercased()] ?? named[artist.trimmingCharacters(in: .whitespaces).lowercased()] {
+            return r
+        }
+        let rigs = ((data["rigs"] as? [[String: Any]]) ?? []).compactMap { r -> (String, Double)? in
+            guard let name = r["name"] as? String else { return nil }
+            return (name, (r["from"] as? NSNumber)?.doubleValue ?? 0)
+        }
+        let list = rigs.isEmpty ? [("Soft", 0), ("Classic rock", 0.4), ("Metal", 0.75)] : rigs
+        let h = heaviness ?? 0
+        return list.last { h >= $0.1 }?.0 ?? list[0].0
+    }
+
     func category(of preset: String) -> Category {
         if let c = Category.allCases.first(where: { $0.name.lowercased() == preset.lowercased() }) { return c }
         let mapped = ((data["categories"] as? [String: Any]) ?? [:])
