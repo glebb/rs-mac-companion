@@ -21,6 +21,8 @@ typedef struct {
     char song_key[128];             // manifest SongKey, e.g. "Skid18an" (names the play record)
     char archive[1024];             // the .psarc the game loaded it from
     char song[256], artist[256];
+    char type[16];                  // manifest ArrangementName: "Lead", "Rhythm", "Bass", "Combo", "Vocals"
+    unsigned char bonus, represent; // manifest bonusArr and represent (missing: represent = !bonus)
     char slots[5][128];             // tone keys for Base, A..D ("" if unused)
     rs_tone_def tones[MAX_TONES];
     int ntones;
@@ -63,6 +65,7 @@ const rs_tone_def *tone_def(const arrangement *a, int slot);
 extern int g_last_slot;             // the slot and tone of the last tone event
 extern char g_last_tone[128];
 extern int g_lead_ms;               // see config_poll()
+extern const char *g_game;          // "game" of state events; NULL: none (Rocksmith)
 
 void events_open(const char *data_dir);
 void send_event(const char *json, int log);

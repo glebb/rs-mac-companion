@@ -23,7 +23,7 @@
 //
 // Logs to ~/Library/Application Support/rs-mac-companion/rscompanion.log; tone events are lines
 // starting with "EVENT " followed by JSON, like rstone.py's output.
-// Songs, tone timelines, events and settings: rscore.c.
+// What it shares with the RockNRoller library (songs, tone timelines, events, settings): rscore.c.
 // Build: see build.sh (x86_64 only: the game runs under Rosetta).
 #include <ctype.h>
 #include <dlfcn.h>

@@ -4,6 +4,7 @@
 #                               Rocksmith's memory without admin rights)
 #   build/rstool                song file reader (index_songs.py uses it)
 #   build/librscompanion.dylib  the in-game library, for the tests
+#   build/librnrcompanion.dylib the library for RockNRoller (arm64)
 # Requires: Xcode command line tools (clang, codesign).
 set -e
 cd "$(dirname "$0")"
@@ -17,4 +18,7 @@ clang -O2 -Wall -o build/rstool native/rstool.c native/rsfile.c -lz
 clang -arch x86_64 -O2 -Wall -dynamiclib -install_name @executable_path/librscompanion.dylib \
   -o build/librscompanion.dylib native/rscompanion.c native/rscore.c native/rsfile.c -lz
 codesign -s - -f build/librscompanion.dylib
-echo "built build/rsprobe, build/rstool and build/librscompanion.dylib"
+clang -arch arm64 -O2 -Wall -dynamiclib -install_name @rpath/librnrcompanion.dylib \
+  -o build/librnrcompanion.dylib native/rnrcompanion.c native/rscore.c native/rsfile.c -lz
+codesign -s - -f build/librnrcompanion.dylib
+echo "built build/rsprobe, build/rstool, build/librscompanion.dylib and build/librnrcompanion.dylib"

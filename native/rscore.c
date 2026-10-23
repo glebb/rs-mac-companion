@@ -1,5 +1,5 @@
 // rscore: what the in-game libraries share, whichever app they run in (Rocksmith:
-// rscompanion.c): the log, a song's arrangements and tone timelines
+// rscompanion.c, RockNRoller: rnrcompanion.c): the log, a song's arrangements and tone timelines
 // read from its archive (rsfile.c), the tone at a time, the events to the companion app and its
 // settings file. Declarations and the song types: rscore.h.
 #include <fcntl.h>
@@ -123,6 +123,10 @@ song *load_song(rs_psarc *p, const char *key) {
                 rs_json_str(json, "SongName", a->song, sizeof a->song);
                 rs_json_str(json, "ArtistName", a->artist, sizeof a->artist);
                 rs_json_str(json, "SongKey", a->song_key, sizeof a->song_key);
+                rs_json_str(json, "ArrangementName", a->type, sizeof a->type);
+                double v;
+                a->bonus = rs_json_num(json, "bonusArr", &v) && v > 0;
+                a->represent = rs_json_num(json, "represent", &v) ? v > 0 : !a->bonus;
                 for (int k = 0; k < 5; k++) rs_json_str(json, slot_keys[k], a->slots[k], sizeof a->slots[k]);
                 a->ntones = rs_json_tones(json, a->tones, MAX_TONES);
                 free(json);
@@ -180,7 +184,8 @@ const rs_tone_def *tone_def(const arrangement *a, int slot) {
 //          perfect_streak, late_hits, late_streak, phrases:[perfect, good, passed, failed],
 //          phrase_streaks:[4], best_phrase_streaks:[4], score, multiplier, best_multiplier};
 //          {"event":"stats", "live": false} once when the game frees the objects. Rocksmith only.
-
+//
+// game: the app the library runs in, in state events, when set (g_game); none means Rocksmith.
 //
 // source: "song-start" (arrangement's starting tone), "banner" (the game's on-screen tone text,
 // before the song timer is locked; up to ~1 s late), "timer" (song timer + timeline; on time).
@@ -191,6 +196,7 @@ static struct sockaddr_un g_sock_addr;
 int g_last_slot = -1;
 char g_last_tone[128];
 int g_lead_ms = 100;         // see config_poll()
+const char *g_game;
 
 void events_open(const char *data_dir) {
     g_sock_addr.sun_family = AF_UNIX;
@@ -313,6 +319,10 @@ void emit_state(const arrangement *a, const char *parts, int locked, double time
     char ev[12288];
     snprintf(ev, sizeof ev, "{\"event\": \"state\", \"protocol\": %d, \"pid\": %d, \"lead_ms\": %d, \"timer_locked\": %s",
              PROTOCOL, getpid(), g_lead_ms, locked ? "true" : "false");
+    if (g_game) {
+        strlcat(ev, ", \"game\": ", sizeof ev);
+        json_str(ev, sizeof ev, g_game);
+    }
     if (a) {
         strlcat(ev, ", ", sizeof ev);
         add_song(ev, sizeof ev, a);
