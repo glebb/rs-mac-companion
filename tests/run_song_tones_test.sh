@@ -3,10 +3,10 @@
 # run_app_test.sh: the in-game dylib runs in the stand-in (tests/standin_dylib.c) with Self Trap
 # (Rhythm, comes with the game), the app has "song_tones" on, and tools/midi_monitor.swift prints
 # what it sends (about 50 s). Expected: one SysEx when the song loads, manufacturer 0x7D then
-# JSON naming the bank and the song's two tones in the order they first play (SelfTrap_clean on
-# Program Change 8, SelfTrap_dist on 9, both without delay or modulation); then Program Change
+# JSON (v2) naming the style and the song's two tones in the order they first play (SelfTrap_clean
+# on Program Change 8, SelfTrap_dist on 9, both without delay or modulation); then Program Change
 # 8 at song start and 9 at the first change (~40 s, from the banner), on MIDI channel 1. Each
-# tone's base is the slot the app picks when that tone plays.
+# tone's category is the one the app picks when that tone plays.
 # Uses a temporary data folder, so your own data and a running RS Companion are not touched
 # (the MIDI source name is the same, so quit a running RS Companion first).
 set -e
@@ -52,22 +52,23 @@ else:
         problems.append("SysEx doesn't start with manufacturer 0x7D")
     msg = json.loads(raw[1:])
     tones = [(t["program"], t["key"]) for t in msg["tones"]]
-    if msg.get("banks") != ["Soft", "Classic rock", "Metal"]:
-        problems.append(f"banks: {msg.get('banks')}")
-    if msg.get("kind") != "song-tones" or msg.get("song") != "Self Trap" or not msg.get("bank"):
-        problems.append(f"unexpected message header: { {k: msg.get(k) for k in ('kind', 'song', 'bank')} }")
+    if msg.get("styles") != ["Soft", "Classic rock", "Metal"]:
+        problems.append(f"styles: {msg.get('styles')}")
+    if (msg.get("v") != 2 or msg.get("kind") != "song-tones" or msg.get("song") != "Self Trap" or not msg.get("style")
+            or msg.get("arrangement") != "selftrap_rhythm" or not isinstance(msg.get("heaviness"), (int, float))):
+        problems.append(f"unexpected message header: { {k: msg.get(k) for k in ('v', 'kind', 'song', 'arrangement', 'style', 'heaviness')} }")
     if tones != [(8, "SelfTrap_clean"), (9, "SelfTrap_dist")]:
         problems.append(f"tones: {tones}")
     for t in msg["tones"]:
-        if t["set"].get("Delay") != {"on": False} or t["set"].get("FX") != {"on": False}:
-            problems.append(f"{t['key']}: expected delay and FX off, got {t['set']}")
-    # Each song tone is built on the slot the tone gets when it plays (amp and gain included).
+        if "delay" in t["effects"] or "modulation" in t["effects"]:
+            problems.append(f"{t['key']}: expected no delay or modulation, got {t['effects']}")
+    # Each song tone has the category the tone gets when it plays (amp and gain included).
     played = dict(re.findall(r"tone \S+ (\S+) \[.*?\] from .* → (\w[\w ]*?) \(", open(sys.argv[2]).read()))
     for t in msg["tones"]:
-        if t["key"] in played and t["base"] != played[t["key"]]:
-            problems.append(f"{t['key']}: built on {t['base']}, but plays as {played[t['key']]}")
+        if t["key"] in played and t["category"] != played[t["key"]]:
+            problems.append(f"{t['key']}: category {t['category']}, but plays as {played[t['key']]}")
     if not any(t["key"] in played for t in msg["tones"]):
-        problems.append("no played tone in the app log to compare the bases with")
+        problems.append("no played tone in the app log to compare the categories with")
 pcs = [l for l in lines if l.startswith("Program Change")]
 if pcs != ["Program Change 8 ch 1", "Program Change 9 ch 1"]:
     problems.append(f"Program Changes: {pcs}")

@@ -83,9 +83,12 @@ Changed tones show a pencil and what they'd be automatically; ↺ puts them back
   category; the MIDI channel;
 - how early to switch, to cover the time your gear needs (the game picks it up within a second);
 - the Rocksmith folder, install / update / uninstall;
-- song-made tones for [Bandbox Stagehand](https://github.com/glebb/bandbox-stagehand) (off by default):
-  when a song loads, Stagehand builds up to five tones for it from your own tones and the song's
-  effects, and Program Change 8–12 switch between them ([song-tones-plan.md](song-tones-plan.md));
+- song tone messages (off by default): when a song loads, a SysEx message describes its tones in
+  Rocksmith's terms (each one's category and its delay, modulation and reverb) and labels the
+  song's style by how heavy it is; during the song Program Change 8–12 (or from another first
+  number, or not at all) play the song's tones. A tool can make a sound for each:
+  [Bandbox Stagehand](https://github.com/glebb/bandbox-stagehand) builds them on the JBL BandBox.
+  The format is in `app/Sources/SongTones.swift`;
 - stream overlays (below);
 - open at login (install the app in /Applications first).
 

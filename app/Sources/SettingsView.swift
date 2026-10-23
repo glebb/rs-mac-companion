@@ -34,12 +34,25 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            section("Song-made tones (Stagehand)") {
-                Toggle("Build each song's tones", isOn: binding(\.songTones))
-                Text("When a song loads, Stagehand builds up to five tones for it from the tones in your Stagehand bank and the "
-                     + "song's effects, and Program Change 8–12 switch between them. The bank comes from the song's "
-                     + "heaviness (\"banks\" and \"song_banks\" in presets.json).")
+            section("Song tone messages") {
+                Toggle("Describe each song's tones (SysEx)", isOn: binding(\.songTones))
+                Text("When a song loads, a SysEx message describes its tones: each one's category and its delay, "
+                     + "modulation and reverb as Rocksmith has them, and the song's style by its heaviness (\"styles\" "
+                     + "and \"song_styles\" in presets.json). A tool that makes a sound per song tone can use it, "
+                     + "e.g. Bandbox Stagehand.")
                     .font(.caption).foregroundStyle(.secondary)
+                if companion.settings.songTones {
+                    Toggle("Play them with Program Changes", isOn: binding(\.songTonePrograms))
+                    if companion.settings.songTonePrograms {
+                        Stepper(value: binding(\.songToneFirstProgram), in: 0...(128 - SongTones.maxTones)) {
+                            Text("Program Change \(companion.settings.songToneFirstProgram)–"
+                                 + "\(companion.settings.songToneFirstProgram + SongTones.maxTones - 1), one per song tone")
+                        }
+                    } else {
+                        Text("The categories' Program Changes play as without the message.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 if companion.settings.songTones, let made = companion.madeTones {
                     Text(made.summary).font(.caption).lineLimit(3)
                 }

@@ -5,7 +5,8 @@ import Foundation
 ///   {"lead_ms": 100, "midi_channel": 1, "programs": {"Clean": 0, "Crunch": 1, "Heavy": 2, "Lead": 3},
 ///    "game_dir": "/path/to/Rocksmith2014",     (only when not Steam's default)
 ///    "overlay_enabled": false, "overlay_port": 9938,
-///    "song_tones": false}                      (song-made tones for Stagehand, SongTones.swift)
+///    "song_tones": false,                      (a SysEx describing each song's tones, SongTones.swift)
+///    "song_tone_programs": true, "song_tone_first_program": 8}   (and Program Changes that play them)
 struct Settings: Equatable {
     var gameDir: String?            // the Rocksmith2014 folder, if not Steam's default
     var leadMs = 100
@@ -13,7 +14,9 @@ struct Settings: Equatable {
     var programs = [0, 1, 2, 3]     // Program Change per category (Clean, Crunch, Heavy, Lead)
     var overlayEnabled = false      // RockSniffer-compatible stream overlays (OverlayServer)
     var overlayPort = 9938          // RockSniffer's default
-    var songTones = false           // Stagehand builds the song's tones (SongTones.swift): PC 8-12
+    var songTones = false           // a SysEx describes each song's tones when it loads (SongTones.swift)
+    var songTonePrograms = true     // with it, song tone i plays on Program Change songToneFirstProgram + i
+    var songToneFirstProgram = SongTones.defaultFirstProgram
 
     /// Common layouts: the four categories on Program Change 0-3 or 4-7 (e.g. two guitar
     /// channels of one device), or a number per category.
@@ -36,7 +39,7 @@ struct Settings: Equatable {
         get { Target.allCases.first { $0.programs == programs } ?? .custom }
         set {
             if let p = newValue.programs { programs = p }
-            else if newValue == .custom, target != .custom { programs = programs.map { $0 + 16 } }  // clear of the presets (0-7) and the song-made tones (8-12)
+            else if newValue == .custom, target != .custom { programs = programs.map { $0 + 16 } }  // clear of the presets (0-7) and the default song tones (8-12)
         }
     }
 
@@ -52,6 +55,8 @@ struct Settings: Equatable {
         if let v = json["overlay_enabled"] as? Bool { s.overlayEnabled = v }
         if let v = json["overlay_port"] as? Int, (1024...65535).contains(v) { s.overlayPort = v }
         if let v = json["song_tones"] as? Bool { s.songTones = v }
+        if let v = json["song_tone_programs"] as? Bool { s.songTonePrograms = v }
+        if let v = json["song_tone_first_program"] as? Int { s.songToneFirstProgram = min(max(v, 0), 128 - SongTones.maxTones) }
         if let p = json["programs"] as? [String: Any] {
             for c in Category.allCases { if let v = p[c.name] as? Int { s.programs[c.rawValue] = min(max(v, 0), 127) } }
         }
@@ -67,6 +72,8 @@ struct Settings: Equatable {
         json["overlay_enabled"] = overlayEnabled
         json["overlay_port"] = overlayPort
         json["song_tones"] = songTones
+        json["song_tone_programs"] = songTonePrograms
+        json["song_tone_first_program"] = songToneFirstProgram
         json["programs"] = Dictionary(uniqueKeysWithValues: Category.allCases.map { ($0.name, programs[$0.rawValue]) })
         if let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: path), options: .atomic)

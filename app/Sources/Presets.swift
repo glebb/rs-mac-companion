@@ -121,36 +121,38 @@ final class Presets {
         return (data["default"] as? String ?? "Clean", "default")
     }
 
-    /// The bank (a set of tone slots in Stagehand) for song-made tones: "song_banks" names one for
-    /// a song key or an artist (song key first); otherwise the last of "banks" whose "from" the
-    /// song's heaviness reaches. Without a "banks" section: Soft, Classic rock (0.4), Metal (0.75).
-    /// ("rigs" and "song_rigs" are read too: what banks were called at first.)
-    func bank(heaviness: Double?, artist: String, songKey: String) -> String {
-        let named = ((data["song_banks"] as? [String: Any] ?? data["song_rigs"] as? [String: Any]) ?? [:]).reduce(into: [String: String]()) {
+    /// The style label of a song, for song tone messages: "song_styles" names one for a song key
+    /// or an artist (song key first); otherwise the last of "styles" whose "from" the song's
+    /// heaviness reaches. Without a "styles" section: Soft, Classic rock (0.4), Metal (0.75).
+    /// (Read too: "banks"/"song_banks" and "rigs"/"song_rigs", what styles were called before.)
+    func style(heaviness: Double?, artist: String, songKey: String) -> String {
+        let named = songStyles.reduce(into: [String: String]()) {
             if let v = $1.value as? String { $0[$1.key.trimmingCharacters(in: .whitespaces).lowercased()] = v }
         }
         if let r = named[songKey.lowercased()] ?? named[artist.trimmingCharacters(in: .whitespaces).lowercased()] {
             return r
         }
         let h = heaviness ?? 0
-        return banks.last { h >= $0.from }?.name ?? banks[0].name
+        return styles.last { h >= $0.from }?.name ?? styles[0].name
     }
 
-    /// Every bank a song may name, for Stagehand to make the missing ones: "banks", then the ones
-    /// only "song_banks" names.
-    var bankNames: [String] {
-        let named = ((data["song_banks"] as? [String: Any] ?? data["song_rigs"] as? [String: Any]) ?? [:])
-            .sorted { $0.key < $1.key }.compactMap { $0.value as? String }
+    /// Every style a song may get: "styles", then the ones only "song_styles" names.
+    var styleNames: [String] {
+        let named = songStyles.sorted { $0.key < $1.key }.compactMap { $0.value as? String }
         var names: [String] = []
-        for name in banks.map(\.name) + named where !names.contains(where: { $0.lowercased() == name.lowercased() }) {
+        for name in styles.map(\.name) + named where !names.contains(where: { $0.lowercased() == name.lowercased() }) {
             names.append(name)
         }
         return names
     }
 
-    /// "banks" by heaviness; Soft, Classic rock (0.4), Metal (0.75) without the section.
-    private var banks: [(name: String, from: Double)] {
-        let list = ((data["banks"] ?? data["rigs"]) as? [[String: Any]] ?? []).compactMap { r -> (name: String, from: Double)? in
+    private var songStyles: [String: Any] {
+        (data["song_styles"] ?? data["song_banks"] ?? data["song_rigs"]) as? [String: Any] ?? [:]
+    }
+
+    /// "styles" by heaviness; Soft, Classic rock (0.4), Metal (0.75) without the section.
+    private var styles: [(name: String, from: Double)] {
+        let list = ((data["styles"] ?? data["banks"] ?? data["rigs"]) as? [[String: Any]] ?? []).compactMap { r -> (name: String, from: Double)? in
             guard let name = r["name"] as? String else { return nil }
             return (name, (r["from"] as? NSNumber)?.doubleValue ?? 0)
         }

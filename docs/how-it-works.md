@@ -89,10 +89,10 @@ catch up, and tells it whether the game (with the dylib) is running.
 | `EventSocket.swift` | binds `events.sock`, decodes events on a background queue, delivers them on the main thread |
 | `Presets.swift` | the mapping in `presets.json`, evaluated exactly like `presets.py` (checked on all 17,542 tone slots of a library) |
 | `Category.swift` | Clean, Crunch, Heavy, Lead |
-| `Settings.swift` | `rscompanion.json`: MIDI channel, Program Change per category, lead time, stream overlays, song-made tones |
+| `Settings.swift` | `rscompanion.json`: MIDI channel, Program Change per category, lead time, stream overlays, song tone messages and their Program Changes |
 | `MIDIOut.swift` | a CoreMIDI virtual source "Rocksmith Companion"; Program Change and SysEx as MIDI 1.0 UMP |
 | `Rig.swift` | a song's gear read from its archive: each tone's drive and effects, the song's heaviness; the same rules as `rig.py` (checked identical on all 2,768 songs of a library) |
-| `SongTones.swift` | song-made tones for Stagehand: the SysEx message (manufacturer 0x7D, then JSON) sent when a song loads, and Program Change 8–12 per tone ([song-tones-plan.md](../song-tones-plan.md)) |
+| `SongTones.swift` | song tone messages: the SysEx (manufacturer 0x7D, then JSON, version 2) sent when a song loads, describing each tone in Rocksmith's terms for any tool, and a Program Change per tone (8–12 by default). Stagehand's use of it: [song-tones-plan.md](../song-tones-plan.md) |
 | `Companion.swift` | state, mapping, overrides, when to send, install status and warnings |
 | `GameInstaller.swift`, `MachOPatcher.swift` | install, update and uninstall in the game (below) |
 | `Main.swift` | starts the app, or runs an install command (`--game-status`, `--install-game`, `--uninstall-game`) |
@@ -228,7 +228,7 @@ of the game executable. `tools/add_load_dylib.py` does step 3 by hand for any ex
 | `tests/run_dylib_test.sh` | the dylib inside `tests/standin_dylib.c`, which reads the game's own `songs.psarc` (the song *Self Trap*) like the game and holds arrangement objects (including a stale pair), a timer, decoy clocks and banners; events checked on the socket; three runs (learning, then narrow scans with a 500 ms lead, then an arrangement without tone changes whose timer the play record locks, with stream overlays on: note-stats and Score Attack objects reported in `stats` events) |
 | `tests/run_overlay_test.sh` | stand-in → dylib → app with stream overlays: RockSniffer's API (`GET /` with the song details read from `songs.psarc`, `/addons`, `/storage`), the text files and album art, the state after the game is gone |
 | `tests/run_app_test.sh` | stand-in → dylib → app → MIDI (`tools/midi_monitor.swift`), with a song override, a live `presets.json` edit, custom MIDI settings and a restart catch-up |
-| `tests/run_song_tones_test.sh` | stand-in → dylib → app with song-made tones on: the SysEx message at song load (bank, tones in order of first use, their effects) and Program Change 8 and 9 |
+| `tests/run_song_tones_test.sh` | stand-in → dylib → app with song tone messages on: the SysEx message at song load (style, tones in order of first use with their categories and effects) and Program Change 8 and 9 |
 | `tests/run_installer_test.sh` | the installer on a copy of the game executable: fresh install, repeat, prototype migration, update, uninstall back to the original bytes, missing game |
 
 The dylib and app tests read *Self Trap*, which comes with the game, from the game folder's

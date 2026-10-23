@@ -1,5 +1,10 @@
 # Song-tones plan: song-made tones on the JBL BandBox
 
+> Since then the companion's message is device-neutral (version 2, `app/Sources/SongTones.swift`):
+> it describes the tones in Rocksmith's terms and a style label, and Stagehand maps them to
+> BandBox models and its banks itself. Where this plan has the companion name models or banks,
+> read Stagehand.
+
 The companion today sends one of four Program Changes (Clean, Crunch, Heavy, Lead) and Stagehand
 ([bandbox-stagehand](https://github.com/glebb/bandbox-stagehand)) switches the speaker to the
 tone in that slot. This plan makes the tones fit each song: while a song loads, the
