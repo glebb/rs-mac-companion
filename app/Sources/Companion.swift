@@ -311,7 +311,7 @@ final class Companion: ObservableObject {
         let prefix = arrangement.lastIndex(of: "_").map { String(arrangement[..<$0]) } ?? arrangement
         let t0 = Date()
         guard let arrangements = Rig.read(archive: archive, prefix: prefix),
-              let made = SongTones.make(song: song, artist: artist, arrangement: arrangement, from: arrangements,
+              var made = SongTones.make(song: song, artist: artist, arrangement: arrangement, from: arrangements,
                                         category: { slot, key in
                                             self.match(GameEvent.Tone(slot: slot, tone: key, descriptors: self.descriptors(key)))
                                                 .category
@@ -321,6 +321,7 @@ final class Companion: ObservableObject {
             madeTones = nil
             return record("song tones: could not read \(arrangement) from \(archive)")
         }
+        made.banks = presets.bankNames
         madeTones = made
         let message = made.json
         if paused {

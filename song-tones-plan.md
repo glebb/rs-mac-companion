@@ -41,7 +41,7 @@ between them during the song with a Program Change, as now.
 ## The load message
 
 ```json
-{"v": 1, "song": "18 And Life", "bank": "Classic rock",
+{"v": 1, "song": "18 And Life", "bank": "Classic rock", "banks": ["Soft", "Classic rock", "Metal"],
  "tones": [
    {"base": "Clean", "set": {"FX": {"model": "Chorus", "Mix": 40}, "Reverb": {"Mix": 30}}},
    {"base": "Heavy", "set": {"Delay": {"on": false}}},
@@ -86,8 +86,9 @@ slots (Stagehand shows the playing tone's name). The template banks keep four sl
    scratch tones are fine.
 4. **Stagehand: banks** (done 2026-10-23). Named sets of the four slots per channel, made
    from the slots as they are under *Banks* in the footer; CC 90 picks one by value. A song's
-   tones use the bank its message names, else the current one, so the companion's bank names
-   (presets.json "banks": Soft, Classic rock, Metal) need banks of those names in Stagehand.
+   tones use the bank its message names. The message also lists every bank presets.json can
+   name ("banks", "song_banks"), and Stagehand makes the missing ones as copies of Main for the
+   player to set up.
 5. **Stagehand: the scratch tones** (done 2026-10-23: `ScratchFiller.swift`). Five scratch
    tones "RS 1"–"RS 5", made on first use; per song tone: select the template slot, write the
    changes, save into the scratch tone, rename, discard. Three tones with effects filled in

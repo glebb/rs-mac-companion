@@ -51,6 +51,8 @@ else:
         problems.append("SysEx doesn't start with manufacturer 0x7D")
     msg = json.loads(raw[1:])
     tones = [(t["program"], t["key"]) for t in msg["tones"]]
+    if msg.get("banks") != ["Soft", "Classic rock", "Metal"]:
+        problems.append(f"banks: {msg.get('banks')}")
     if msg.get("kind") != "song-tones" or msg.get("song") != "Self Trap" or not msg.get("bank"):
         problems.append(f"unexpected message header: { {k: msg.get(k) for k in ('kind', 'song', 'bank')} }")
     if tones != [(8, "SelfTrap_clean"), (9, "SelfTrap_dist")]:

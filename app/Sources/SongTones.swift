@@ -10,6 +10,7 @@ import Foundation
 /// keeps its template's level. Names are the JBL app's, as Stagehand shows them.
 ///
 ///   {"v": 1, "kind": "song-tones", "song": "18 And Life", "artist": "Skid Row", "bank": "Classic rock",
+///    "banks": ["Soft", "Classic rock", "Metal"],
 ///    "tones": [{"program": 8, "key": "skid18an_clean", "base": "Clean",
 ///               "set": {"FX": {"on": true, "model": "Chorus", "Mix": 35}, "Delay": {"on": false},
 ///                       "Reverb": {"on": true, "Mix": 25}}}, ...]}
@@ -27,6 +28,8 @@ struct SongTones {
     let song: String
     let artist: String
     let bank: String
+    /// Every bank a song may name, so Stagehand can make the missing ones before they're needed.
+    var banks: [String] = []
     let heaviness: Double?
     let tones: [Tone]
 
@@ -100,7 +103,7 @@ struct SongTones {
     /// The message as JSON text, 7-bit clean (other characters as \u escapes) for SysEx.
     var json: String {
         let body: [String: Any] = [
-            "v": 1, "kind": "song-tones", "song": song, "artist": artist, "bank": bank,
+            "v": 1, "kind": "song-tones", "song": song, "artist": artist, "bank": bank, "banks": banks,
             "tones": tones.enumerated().map { i, t in
                 ["program": Self.firstProgram + i, "key": t.key, "base": t.base.name, "set": t.set] as [String: Any]
             },

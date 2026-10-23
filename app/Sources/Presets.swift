@@ -132,13 +132,29 @@ final class Presets {
         if let r = named[songKey.lowercased()] ?? named[artist.trimmingCharacters(in: .whitespaces).lowercased()] {
             return r
         }
-        let banks = ((data["banks"] ?? data["rigs"]) as? [[String: Any]] ?? []).compactMap { r -> (String, Double)? in
+        let h = heaviness ?? 0
+        return banks.last { h >= $0.from }?.name ?? banks[0].name
+    }
+
+    /// Every bank a song may name, for Stagehand to make the missing ones: "banks", then the ones
+    /// only "song_banks" names.
+    var bankNames: [String] {
+        let named = ((data["song_banks"] as? [String: Any] ?? data["song_rigs"] as? [String: Any]) ?? [:])
+            .sorted { $0.key < $1.key }.compactMap { $0.value as? String }
+        var names: [String] = []
+        for name in banks.map(\.name) + named where !names.contains(where: { $0.lowercased() == name.lowercased() }) {
+            names.append(name)
+        }
+        return names
+    }
+
+    /// "banks" by heaviness; Soft, Classic rock (0.4), Metal (0.75) without the section.
+    private var banks: [(name: String, from: Double)] {
+        let list = ((data["banks"] ?? data["rigs"]) as? [[String: Any]] ?? []).compactMap { r -> (name: String, from: Double)? in
             guard let name = r["name"] as? String else { return nil }
             return (name, (r["from"] as? NSNumber)?.doubleValue ?? 0)
         }
-        let list = banks.isEmpty ? [("Soft", 0), ("Classic rock", 0.4), ("Metal", 0.75)] : banks
-        let h = heaviness ?? 0
-        return list.last { h >= $0.1 }?.0 ?? list[0].0
+        return list.isEmpty ? [("Soft", 0), ("Classic rock", 0.4), ("Metal", 0.75)] : list
     }
 
     func category(of preset: String) -> Category {

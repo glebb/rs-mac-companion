@@ -12,7 +12,8 @@
     "Its overrides use those names; 'categories' says which category every other preset name means.",
     "Song-made tones (Stagehand): 'banks' picks the bank (a set of tone slots) a song's tones start from by the song's heaviness",
     "(0-1, see songs.csv), the last whose 'from' it reaches; 'song_banks' names one for a song key or an artist,",
-    "e.g. {\"AC/DC\": \"Classic rock\", \"skid18an\": \"Metal\"}."
+    "e.g. {\"AC/DC\": \"Classic rock\", \"skid18an\": \"Metal\"}. Stagehand makes the banks it doesn't have",
+    "as copies of its bank Main, for you to set up."
   ],
   "categories": {"Clean": "Clean", "Crunch": "Crunch", "Distortion": "Heavy", "Heavy": "Heavy", "Lead": "Lead",
                  "Acoustic": "Clean", "Bass": "Clean", "Bass Drive": "Crunch"},
