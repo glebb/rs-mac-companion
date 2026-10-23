@@ -313,8 +313,7 @@ final class Companion: ObservableObject {
         guard let arrangements = Rig.read(archive: archive, prefix: prefix),
               var made = SongTones.make(song: song, artist: artist, arrangement: arrangement, from: arrangements,
                                         category: { slot, key in
-                                            self.match(GameEvent.Tone(slot: slot, tone: key, descriptors: self.descriptors(key)))
-                                                .category
+                                            self.match(self.gameTone(slot: slot, key: key)).category
                                         },
                                         bank: { self.presets.bank(heaviness: $0, artist: self.artist, songKey: prefix) })
         else {
@@ -333,8 +332,13 @@ final class Companion: ObservableObject {
     }
 
     /// A tone key's tags, from the song event.
-    private func descriptors(_ key: String) -> [String] {
-        songTones.first { $0.tone.lowercased() == key.lowercased() }?.descriptors ?? []
+    /// The game's tone for a song-made tone, with its descriptors, amp and gain, so it gets the
+    /// same category as when it plays; only the key and slot if the game didn't list it.
+    private func gameTone(slot: String, key: String) -> GameEvent.Tone {
+        guard let t = songTones.first(where: { $0.tone.lowercased() == key.lowercased() }) else {
+            return GameEvent.Tone(slot: slot, tone: key, descriptors: [])
+        }
+        return GameEvent.Tone(slot: slot, tone: key, descriptors: t.descriptors, amp: t.amp, gain: t.gain)
     }
 
     private func rows() -> [ToneRow] {

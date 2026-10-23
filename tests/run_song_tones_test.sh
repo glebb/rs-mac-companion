@@ -5,7 +5,8 @@
 # what it sends (about 50 s). Expected: one SysEx when the song loads, manufacturer 0x7D then
 # JSON naming the bank and the song's two tones in the order they first play (SelfTrap_clean on
 # Program Change 8, SelfTrap_dist on 9, both without delay or modulation); then Program Change
-# 8 at song start and 9 at the first change (~40 s, from the banner), on MIDI channel 1.
+# 8 at song start and 9 at the first change (~40 s, from the banner), on MIDI channel 1. Each
+# tone's base is the slot the app picks when that tone plays.
 # Uses a temporary data folder, so your own data and a running RS Companion are not touched
 # (the MIDI source name is the same, so quit a running RS Companion first).
 set -e
@@ -38,8 +39,8 @@ kill $APP $MONITOR $STANDIN; wait 2>/dev/null || true
 
 echo "app log:"; sed 's/^/  /' "$DATA/rs-companion-app.log"
 echo "MIDI:"; sed 's/^/  /' "$DATA/midi.txt"
-python3 - "$DATA/midi.txt" <<'EOF'
-import json, sys
+python3 - "$DATA/midi.txt" "$DATA/rs-companion-app.log" <<'EOF'
+import json, re, sys
 lines = [l.split(": ", 1)[1].strip() for l in open(sys.argv[1]) if ": " in l and ("SysEx" in l or "Program Change" in l)]
 problems = []
 sysex = [l for l in lines if l.startswith("SysEx")]
@@ -60,6 +61,13 @@ else:
     for t in msg["tones"]:
         if t["set"].get("Delay") != {"on": False} or t["set"].get("FX") != {"on": False}:
             problems.append(f"{t['key']}: expected delay and FX off, got {t['set']}")
+    # Each song tone is built on the slot the tone gets when it plays (amp and gain included).
+    played = dict(re.findall(r"tone \S+ (\S+) \[.*?\] from .* → (\w[\w ]*?) \(", open(sys.argv[2]).read()))
+    for t in msg["tones"]:
+        if t["key"] in played and t["base"] != played[t["key"]]:
+            problems.append(f"{t['key']}: built on {t['base']}, but plays as {played[t['key']]}")
+    if not any(t["key"] in played for t in msg["tones"]):
+        problems.append("no played tone in the app log to compare the bases with")
 pcs = [l for l in lines if l.startswith("Program Change")]
 if pcs != ["Program Change 8 ch 1", "Program Change 9 ch 1"]:
     problems.append(f"Program Changes: {pcs}")
