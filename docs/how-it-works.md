@@ -9,7 +9,7 @@ they differ in where the detection runs.
 | Detection | `librscompanion` dylib inside the game | `rstone.py` + `rsprobe` reading the game from outside |
 | Song data | read live from the archive the game is loading | pre-built index of all songs (`index_songs.py`) |
 | Needs | the game executable patched to load the dylib | Developer Mode, Python |
-| Output | events to the **RS Companion** menu-bar app → MIDI | JSON lines, UDP, live web window |
+| Output | events to the **RS Companion** menu-bar app → MIDI (Program Changes; song tone messages), stream overlays | JSON lines, UDP, live web window |
 
 ## In-game: dylib + menu-bar app
 
@@ -21,8 +21,9 @@ Rocksmith2014 (x86_64, Rosetta)
       ▼  DATA_DIR/events.sock
 RS Companion.app (app/, menu bar)
       │ presets.json → category (Clean / Crunch / Heavy / Lead)   rscompanion.json → settings
-      ▼  virtual MIDI source "Rocksmith Companion"
-your MIDI-controlled amp, speaker or app
+      │ song's archive → each tone's effects, the song's style (song tone messages, optional)
+      ▼  virtual MIDI source "Rocksmith Companion": Program Changes, song tone SysEx
+your MIDI-controlled amp, speaker or app (e.g. Bandbox Stagehand for song tones)
 ```
 
 ### The dylib ([native/rscompanion.c](../native/rscompanion.c))
@@ -90,9 +91,9 @@ catch up, and tells it whether the game (with the dylib) is running.
 | `Presets.swift` | the mapping in `presets.json`, evaluated exactly like `presets.py` (checked on all 17,542 tone slots of a library) |
 | `Category.swift` | Clean, Crunch, Heavy, Lead |
 | `Settings.swift` | `rscompanion.json`: MIDI channel, Program Change per category, lead time, stream overlays, song tone messages and their Program Changes |
-| `MIDIOut.swift` | a CoreMIDI virtual source "Rocksmith Companion"; Program Change and SysEx as MIDI 1.0 UMP |
+| `MIDIOut.swift` | a CoreMIDI virtual source "Rocksmith Companion"; Program Change and SysEx as MIDI 1.0 UMP, held for the first second so listeners can connect |
 | `Rig.swift` | a song's gear read from its archive: each tone's drive and effects, the song's heaviness; the same rules as `rig.py` (checked identical on all 2,768 songs of a library) |
-| `SongTones.swift` | song tone messages: the SysEx (manufacturer 0x7D, then JSON, version 2) sent when a song loads, describing each tone in Rocksmith's terms for any tool, and a Program Change per tone (8–12 by default). Stagehand's use of it: [song-tones-plan.md](../song-tones-plan.md) |
+| `SongTones.swift` | song tone messages: the SysEx (manufacturer 0x7D, then JSON, version 2) sent when a song loads, describing each tone in Rocksmith's terms for any tool, and a Program Change per tone (8–12 by default). The format: [song-tone-messages.md](song-tone-messages.md) |
 | `Companion.swift` | state, mapping, overrides, when to send, install status and warnings |
 | `GameInstaller.swift`, `MachOPatcher.swift` | install, update and uninstall in the game (below) |
 | `Main.swift` | starts the app, or runs an install command (`--game-status`, `--install-game`, `--uninstall-game`) |

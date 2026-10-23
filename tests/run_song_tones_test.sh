@@ -1,5 +1,5 @@
 #!/bin/sh
-# End-to-end test of song-made tones (app/Sources/SongTones.swift) without the game, like
+# End-to-end test of song tone messages (app/Sources/SongTones.swift, docs/song-tone-messages.md) without the game, like
 # run_app_test.sh: the in-game dylib runs in the stand-in (tests/standin_dylib.c) with Self Trap
 # (Rhythm, comes with the game), the app has "song_tones" on, and tools/midi_monitor.swift prints
 # what it sends (about 50 s). Expected: one SysEx when the song loads, manufacturer 0x7D then
