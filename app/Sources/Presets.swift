@@ -36,6 +36,42 @@ final class Presets {
         reload()
     }
 
+    /// Tags that say only what effect a tone has, not how distorted it is.
+    static let effectTags = ["CHORUS", "REVERB", "TREMOLO", "PHASER", "FLANGER", "ECHO", "DELAY", "FILTER",
+                             "OCTAVE", "LOW OUTPUT", "SPECIAL EFFECT", "PROCESSED"]
+
+    /// One-time update of a mapping made before rules had "drive" (before 1.1.0): if its rules
+    /// still have the old default rule sending CLEAN and every effect tag to Clean, unchanged, and
+    /// no rule uses "drive", the new default rules go in before it: CLEAN to Clean, then
+    /// effect-only tones by drive to Distortion (heavy) or Crunch. A file edited there stays as it
+    /// is. The old file is kept as presets.json.bak-before-drive-rules. Returns what was done.
+    func upgrade() -> String? {
+        guard var rules = data["rules"] as? [Any],
+              !rules.contains(where: { ($0 as? [String: Any])?["drive"] != nil }),
+              let at = rules.firstIndex(where: {
+                  guard let r = $0 as? [String: Any], Set(r.keys) == ["preset", "any"],
+                        r["preset"] as? String == "Clean", let any = r["any"] as? [String] else { return false }
+                  return any.count == Self.effectTags.count + 1 && Set(any) == Set(["CLEAN"] + Self.effectTags)
+              })
+        else { return nil }
+        rules.insert(contentsOf: [
+            ["preset": "Clean", "any": ["CLEAN"]],
+            ["preset": "Distortion", "any": Self.effectTags, "drive": ["heavy"]],
+            ["preset": "Crunch", "any": Self.effectTags, "drive": ["crunch"]],
+        ] as [Any], at: at)
+        data["rules"] = rules
+        if var help = data["_help"] as? [String], let i = help.firstIndex(where: { $0.hasPrefix("3. rules:") }) {
+            help.insert("   'drive' (how distorted the tone's amp and pedals are: clean, crunch or heavy; see tone_catalog.csv),",
+                        at: i + 1)
+            data["_help"] = help
+        }
+        let backup = path + ".bak-before-drive-rules"
+        if !FileManager.default.fileExists(atPath: backup) { try? FileManager.default.copyItem(atPath: path, toPath: backup) }
+        save()
+        return "presets.json: tones tagged only with effects now go by drive (rules added; old file kept as "
+            + (backup as NSString).lastPathComponent + ")"
+    }
+
     /// Re-reads the file if it changed. Returns true if it did.
     @discardableResult
     func reload() -> Bool {

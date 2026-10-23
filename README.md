@@ -68,6 +68,11 @@ Settings › Rocksmith › Change Folder…, then click Install.
 brings a newer game library, the app says **Update**: quit Rocksmith and click it. The app's
 version is shown at the bottom of its Settings.
 
+From 1.1.0, tones tagged only with effects are mapped by their drive. If your `presets.json`
+still has the old default rule that sent them to Clean, unchanged, the app adds the new rules
+once at startup and keeps your old file as `presets.json.bak-before-drive-rules`. If you had
+edited that rule, your rules stay as they are.
+
 ### Build from source
 
 Needs Apple's **Command Line Tools** (`xcode-select --install`; they include `clang` and

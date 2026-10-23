@@ -76,6 +76,7 @@ final class Companion: ObservableObject {
         if let error = socket.start() { problem = error }
         self.socket = socket
         record("started; listening on \(socket.path); mapping in \(presets.path)")
+        if let done = presets.upgrade() { record(done) }
         overlay = Overlay(dataDir: dataDir) { [weak self] in self?.record($0) }
         overlay.configure(enabled: settings.overlayEnabled, port: settings.overlayPort)
         checkGame()
