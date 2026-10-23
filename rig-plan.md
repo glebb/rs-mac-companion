@@ -83,11 +83,14 @@ buttons (Stagehand shows the playing tone's name). The template rigs keep four b
    jumps between template buttons while the song loads. Save as also switches the channel to
    the new tone. 69 user tones fit, but the tone library reply breaks above ~60, so five
    scratch tones are fine.
-4. **Stagehand: rigs** (named sets of tone buttons, CC 90).
+4. **Stagehand: rigs** (done 2026-10-23). Named sets of the four buttons per channel, made
+   from the buttons as they are under *Rigs* in the footer; CC 90 picks one by value. A song's
+   tones use the rig its message names, else the current one, so the companion's rig names
+   (presets.json "rigs": Soft, Classic rock, Metal) need rigs of those names in Stagehand.
 5. **Stagehand: the Rocksmith rig** (done 2026-10-23: `ScratchFiller.swift`). Five scratch
    tones "RS 1"–"RS 5", made on first use; per song tone: select the template button, write the
    changes, save into the scratch tone, rename, discard. Three tones with effects filled in
    1.7 s (11 writes), heard right, the buttons unchanged. PC 8–12 play them, or their buttons
-   until filled. Templates are the current four buttons; rigs (step 4) aren't used yet.
+   until filled. Templates come from the rig the message names (step 4).
 6. **Companion: send the load message** (done: `app/Sources/SongTones.swift`, setting "song_tones") at song load, then PC 8–12 for the scratch tones; per
    artist / per song rig overrides in presets.json.
