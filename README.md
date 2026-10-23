@@ -418,6 +418,9 @@ RockSniffer's overlay pages (below).
 - A tone change in the first few seconds of a song, before the song timer is synced, comes from
   the on-screen banner, up to ~1 s late (in external mode: every change until the first banner
   of a game session).
+- A song is followed only when the game reads its files as it loads it. If a song starts
+  without that (seen once, cause unknown), RS Companion stops the tone changes at once and shows
+  no song until the next one loads. Restarting the game fixed it the time it was seen.
 - MIDI is one-way: switching presets on the receiving side isn't seen by the app, and it doesn't
   know whether a receiver acted on a song tone message.
 - RS Companion has to be installed into the game again after Steam replaces the game executable

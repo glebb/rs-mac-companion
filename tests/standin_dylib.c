@@ -14,6 +14,9 @@
 // to a stale record from an earlier play and the preview's "Play_SelfTrap_Preview". While that
 // song plays, the note-stats and Score Attack objects count one hit per second (score +100 each),
 // next to a freed note-stats copy (marker kept, type pointer gone).
+// "unseen" is "notones" with two more starts: at e = 20 s Self Trap is restarted (timer and play
+// record from 0 again), and at e = 32 s another song starts without the game reading its files
+// (the timer runs from 0 again, Self Trap's play record stops).
 // Built as x86_64, so it runs under Rosetta like the real game.
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
@@ -74,10 +77,11 @@ static void *arrangement(uint64_t vtable, const char *name) {
 
 int main(int argc, char **argv) {
     if (argc != 4 && argc != 5) {
-        fprintf(stderr, "usage: rs-standin-dylib <archive> <sng offset> <audio offset> [notones]\n");
+        fprintf(stderr, "usage: rs-standin-dylib <archive> <sng offset> <audio offset> [notones|unseen]\n");
         return 2;
     }
-    int notones = argc == 5 && !strcmp(argv[4], "notones");
+    int unseen = argc == 5 && !strcmp(argv[4], "unseen");
+    int notones = unseen || (argc == 5 && !strcmp(argv[4], "notones"));
     uint64_t slide = 0;
     for (uint32_t i = 0; i < _dyld_image_count(); i++)
         if (_dyld_get_image_header(i)->filetype == MH_EXECUTE) slide = (uint64_t)_dyld_get_image_vmaddr_slide(i);
@@ -127,7 +131,9 @@ int main(int argc, char **argv) {
         *loop = e - 8 * (int)(e / 8);
         if (notones) {
             *picked = e < 3 ? 0.0 : e - 3;
-            *song = e < 5 ? 0.0 : e - 5;
+            if (unseen && e >= 32) *song = e - 32;
+            else if (unseen && e >= 20) *song = e - 20;
+            else *song = e < 5 ? 0.0 : e - 5;
             if (!rec && e >= 5) {
                 g_objects[9] = rec = play_record("Play_SelfTrap", 0);
                 g_objects[11] = note = stats_object(NOTE_STATS_VTABLE + slide);
@@ -140,7 +146,7 @@ int main(int argc, char **argv) {
                 sa[0x68 / 4] = sa[0x58 / 4] = sa[0x60 / 4] = hits;
                 sa[0x118 / 4] = hits * 100;
             }
-            if (rec) {
+            if (rec && !(unseen && e >= 32)) {
                 float f = (float)*song;
                 int32_t ms = (int32_t)(*song * 1000);
                 memcpy(rec + 0x20, &f, 4);

@@ -1,6 +1,6 @@
 #!/bin/sh
 # End-to-end test of the in-game dylib (native/rscompanion.c) without the game, against
-# tests/standin_dylib.c (two runs of about 60 s and one of 30 s), with tools/event_listener.py receiving the
+# tests/standin_dylib.c (two runs of about 60 s, one of 30 s and one of 55 s), with tools/event_listener.py receiving the
 # events on the socket as the companion app would. Checks:
 #   - the song is detected from the stand-in's file reads of the game's own songs.psarc (Self
 #     Trap, which comes with the game), the selected arrangement is picked (not a stale one), and
@@ -14,7 +14,11 @@
 #     record "Play_SelfTrap" locks the song timer within seconds of the song starting, ignoring a
 #     stale record and a clock started when the song was picked. With overlay_enabled set in
 #     rscompanion.json for this run, the note-stats and Score Attack objects are found by type
-#     pointer (not the freed copy) and reported in stats events; runs 1-2 send none.
+#     pointer (not the freed copy) and reported in stats events; runs 1-2 send none,
+#   - run 4 (stand-in "unseen"): run 3's song is restarted (the timer goes back; the play record
+#     shows the song again, so tone changes go on), then another song starts whose files the game
+#     doesn't read: tone changes stop at once, and once its play record stays gone the song is
+#     dropped (heartbeats without a song).
 # Needs the game installed (songs.psarc). Everything goes to a temporary folder, so your own data
 # is not touched.
 set -e
@@ -33,18 +37,19 @@ mkdir -p "$DATA"
 STANDIN= LISTENER=
 trap 'kill $STANDIN $LISTENER 2>/dev/null || true; wait 2>/dev/null; rm -rf "$HOME_DIR"' EXIT
 
-for RUN in 1 2 3; do
+for RUN in 1 2 3 4; do
   LOG="$DATA/rscompanion.log" EVENTS="$DATA/events.jsonl"
   rm -f "$LOG" "$EVENTS"
   [ $RUN = 2 ] && echo '{"lead_ms": 500}' > "$DATA/rscompanion.json"
   [ $RUN = 3 ] && echo '{"lead_ms": 500, "overlay_enabled": true}' > "$DATA/rscompanion.json"
+  [ $RUN = 4 ] && echo '{"lead_ms": 500}' > "$DATA/rscompanion.json"
   python3 tools/event_listener.py --socket "$DATA/events.sock" --out "$EVENTS" > /dev/null 2>&1 &
   LISTENER=$!
   sleep 1
   HOME="$HOME_DIR" DYLD_INSERT_LIBRARIES="$PWD/build/librscompanion.dylib" \
-    build/rs-standin-dylib "$ARCHIVE" "$SNG" "$AUDIO" $([ $RUN = 3 ] && echo notones) &
+    build/rs-standin-dylib "$ARCHIVE" "$SNG" "$AUDIO" $([ $RUN = 3 ] && echo notones) $([ $RUN = 4 ] && echo unseen) &
   STANDIN=$!
-  if [ $RUN = 3 ]; then sleep 30; else sleep 60; fi
+  case $RUN in 3) sleep 30 ;; 4) sleep 55 ;; *) sleep 60 ;; esac
   kill $STANDIN $LISTENER; wait $STANDIN $LISTENER 2>/dev/null || true
   echo "run $RUN:"
   grep -v '^\S* EVENT' "$LOG" | grep -v '^\S*   ' | grep -v 'banner seen' | sed 's/^/  log: /'
@@ -54,6 +59,30 @@ log, events_file, run = sys.argv[1], sys.argv[2], int(sys.argv[3])
 lines = open(log).read().splitlines()
 events = [json.loads(l) for l in open(events_file)]
 problems = []
+
+if run == 4:
+    tones = [(e["source"], e["arrangement"], e["slot"], e["tone"]) for e in events if e["event"] == "tone"]
+    print("  ", tones)
+    if tones != [("song-start", "selftrap_bass", "Base", "SelfTrap_bass")]:
+        problems.append("tones: expected only the starting tone of selftrap_bass")
+    at = lambda text: next((i for i, l in enumerate(lines) if text in l), None)
+    lock, back = at("play record: song timer is the double"), at("song timer went back")
+    goes_on, dropped = at("play record shows SelfTrap playing"), at("no live play record of SelfTrap")
+    backs = [i for i, l in enumerate(lines) if "song timer went back" in l]
+    if None in (lock, back, goes_on, dropped) or len(backs) != 2 or not lock < backs[0] < goes_on < backs[1] < dropped:
+        problems.append("log: expected lock, timer back (restart), play record goes on, timer back (other song), dropped")
+    states = [e for e in events if e["event"] == "state"]
+    with_song = [i for i, e in enumerate(states) if e.get("song")]
+    last = states[-1] if states else {}
+    print(f"   {len(states)} heartbeats, {len(with_song)} with the song; last: song {last.get('song')!r}")
+    # Song from ~3 s (picked) until dropped ~10-15 s after the other song starts at 32 s.
+    if not with_song or last.get("song") or not 35 <= len(with_song) <= 50 \
+            or with_song != list(range(with_song[0], with_song[-1] + 1)):
+        problems.append("heartbeats: expected the song until it is dropped (~42-48 s), none after")
+    for p in problems:
+        print("   FAIL:", p)
+    print(f"run {run}:", "FAIL" if problems else "PASS")
+    sys.exit(1 if problems else 0)
 
 if run == 3:
     tones = [(e["source"], e["arrangement"], e["slot"], e["tone"]) for e in events if e["event"] == "tone"]

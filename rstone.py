@@ -206,10 +206,10 @@ def slot_at(arr, t):
     """Tone slot index (0 = Base, 1..4 = A..D) at song time t."""
     slot = 0
     for ct, tone_id in arr["changes"]:
-        if ct <= t:
-            slot = int(tone_id) + 1
-        else:
+        if ct > t:
             break
+        if 0 <= int(tone_id) < 4:  # ids beyond D (a few songs have 5) change nothing
+            slot = int(tone_id) + 1
     return slot
 
 
@@ -486,6 +486,8 @@ def main():
                         if v is None:
                             continue
                         for ct, tone_id in arr["changes"]:
+                            if not 0 <= int(tone_id) < 4:
+                                continue
                             key, desc = tone_info(arr, int(tone_id) + 1)
                             if banner_matches(text, key, desc):
                                 lag = v - (time.time() - seen_at) - ct  # candidate time at banner discovery minus change time

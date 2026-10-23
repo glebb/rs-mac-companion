@@ -677,6 +677,16 @@ static int g_npool;
 static uint64_t g_timer;            // the confirmed song timer, or 0
 static int g_confirmed;
 
+// Hold: no timed tone changes until the song's live play record (or a banner) shows that this
+// song is the one playing. Set when the song timer goes back (a restart, a jump back, or another
+// song started, whose files the game may not have read now) and when an arrangement is picked
+// while a timer from an earlier song is confirmed (it still shows where that song stopped).
+// g_hold_from is the timer's value after it went back (-1: not gone back yet); the searcher
+// drops the song when the timer runs on from there without the play record (see searcher).
+static int g_hold;
+static double g_hold_from;
+static int g_hold_misses;
+
 typedef struct { double seen; char text[96]; } banner;
 #define PENDING 16
 static banner g_banners[PENDING];   // banners seen but not yet handled
@@ -1188,7 +1198,7 @@ static void *searcher(void *arg) {
         double loaded_at = g_song_loaded_at;
         char key[128] = "";
         if (g_song) snprintf(key, sizeof key, "%s", g_song->key);
-        int have = g_have_arr, confirmed = g_confirmed, changes = g_arr.nch;
+        int have = g_have_arr, confirmed = g_confirmed, changes = g_arr.nch, hold = g_hold;
         char cur[128], song_key[128];
         snprintf(cur, sizeof cur, "%s", g_arr.name);
         snprintf(song_key, sizeof song_key, "%s", g_arr.song_key);
@@ -1237,17 +1247,38 @@ static void *searcher(void *arg) {
             }
         }
         // Each song: check the timer against the game's play record, every 3 s from when the
-        // arrangement is picked until the song plays (up to 10 minutes).
+        // arrangement is picked until the song plays (up to 10 minutes), and every 2 s on hold.
         t = now_s();
-        if (have && song_gen == seen_song_gen && checked_gen != arr_gen && song_key[0] && t - selected_at < 600 &&
-            t - last_play_check >= 3) {
+        if (have && song_gen == seen_song_gen && song_key[0] &&
+            ((checked_gen != arr_gen && t - selected_at < 600) || hold) && t - last_play_check >= (hold ? 2 : 3)) {
             last_play_check = t;
             int r = play_check(buf, bs, ps, arr_gen, song_key);
             if (r == 1) checked_gen = arr_gen;
             if (r < 0) live_gen = arr_gen, live_at = now_s();
+            // On hold, a live record of this song lets tone changes go on. With none in 5 checks
+            // (one of them a full scan) while the timer ran 10 s on from where it went back,
+            // another song is playing: one whose files the game didn't read now (a song played
+            // earlier, or the same song in two archives), so there is nothing to follow.
+            double v = 0, from = 0;
+            int released = 0, dropped = 0;
             pthread_mutex_lock(&g_state_lock);
+            if (hold && g_hold && g_arr_gen == arr_gen) {
+                if (r != 0) {
+                    g_hold = 0, released = 1;
+                } else if (g_confirmed && g_hold_from >= 0 && read_timer(g_timer, &v) && ++g_hold_misses >= 5 &&
+                           v - g_hold_from >= 10) {
+                    g_hold = 0, g_have_arr = 0, dropped = 1, from = g_hold_from;
+                }
+            }
             confirmed = g_confirmed;
             pthread_mutex_unlock(&g_state_lock);
+            if (released) logline("play record shows %s playing; tone changes go on", song_key);
+            if (dropped) {
+                logline("no live play record of %s while the song timer ran from %.2f to %.2f s: another song is "
+                        "playing, loaded unseen; no tone changes until the game loads a song",
+                        song_key, from, v);
+                continue;
+            }
         }
         // The rate search fills the candidate pool: for arrangements with tone changes (a banner
         // or the play record confirms), and for others while the play record shows the song
@@ -1362,7 +1393,7 @@ static void *tracker(void *arg) {
     arrangement *a = own_alloc(sizeof *a);
     banner pending[PENDING];
     int npending = 0;
-    double last_beat = 0;
+    double last_beat = 0, prev = -1;
     static char parts[sizeof g_parts];  // in our image: never scanned
     for (;;) {
         usleep(50000);
@@ -1377,6 +1408,8 @@ static void *tracker(void *arg) {
             npending = 0;
             g_last_slot = -1;
             g_last_tone[0] = 0;
+            g_hold = g_confirmed, g_hold_from = -1, g_hold_misses = 0;
+            prev = -1;
             pthread_mutex_unlock(&g_state_lock);
             emit_song(a, parts);
             emit_tone(a, 0, "song-start", -1);
@@ -1385,7 +1418,7 @@ static void *tracker(void *arg) {
         nfresh = g_nbanners;
         memcpy(fresh, g_banners, sizeof fresh);
         g_nbanners = 0;
-        int confirmed = g_confirmed;
+        int confirmed = g_confirmed, hold = g_hold;
         uint64_t timer = g_timer;
         int npool = g_npool;
         uint64_t pool[POOL];
@@ -1408,6 +1441,13 @@ static void *tracker(void *arg) {
             double v;
             for (int i = 0; i < nfresh; i++) {
                 int slot = banner_slot(a, fresh[i].text);
+                if (slot >= 0 && hold) {  // a banner of this song: it is the one playing
+                    pthread_mutex_lock(&g_state_lock);
+                    g_hold = 0;
+                    pthread_mutex_unlock(&g_state_lock);
+                    hold = 0;
+                    logline("banner \"%s\" shows %s playing; tone changes go on", fresh[i].text, a->song_key);
+                }
                 if (slot < 0 || !read_timer(timer, &v)) continue;
                 int ok = 0;
                 for (double back = 0; back <= 5; back += 0.5)
@@ -1444,7 +1484,9 @@ static void *tracker(void *arg) {
                     double v;
                     if (!read_timer(pool[c], &v)) continue;
                     for (int j = 0; j < a->nch; j++) {
-                        if (!banner_matches(pending[i].text, a, a->ch[j].id + 1)) continue;
+                        // Slot ids beyond D (a few songs have 5) change nothing, as in slot_at().
+                        if (a->ch[j].id < 0 || a->ch[j].id >= 4 || !banner_matches(pending[i].text, a, a->ch[j].id + 1))
+                            continue;
                         // Candidate's value when the banner was found, minus the change time.
                         double lag = v - (t - pending[i].seen) - a->ch[j].time;
                         if (lag >= -0.5 && lag <= 5.0 && (lag < 0 ? -lag : lag) < (best_lag < 0 ? -best_lag : best_lag))
@@ -1474,8 +1516,19 @@ static void *tracker(void *arg) {
             g_confirmed = 0;
             g_timer = 0;
             pthread_mutex_unlock(&g_state_lock);
+            prev = -1;
             continue;
         }
+        if (prev >= 0 && v < prev - 2) {
+            pthread_mutex_lock(&g_state_lock);
+            g_hold = 1, g_hold_from = v, g_hold_misses = 0;
+            pthread_mutex_unlock(&g_state_lock);
+            hold = 1;
+            logline("song timer went back from %.2f to %.2f s; tone changes wait for the play record of %s", prev, v,
+                    a->song_key);
+        }
+        prev = v;
+        if (hold) continue;
         int slot = slot_at(a, v + g_lead_ms / 1000.0);
         if (slot != g_last_slot) {
             if (strcasecmp(tone_key(a, slot), g_last_tone)) emit_tone(a, slot, "timer", v);  // same tone, other slot: no change

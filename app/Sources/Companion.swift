@@ -276,7 +276,14 @@ final class Companion: ObservableObject {
             lastHeartbeat = Date()
             timerLocked = e.timer_locked ?? false
             leadMs = e.lead_ms ?? leadMs
-            guard e.song != nil else { return }
+            guard e.song != nil else {
+                // The game plays a song the in-game library didn't see load (or the game restarted).
+                if song != nil {
+                    record("no song from the game; song cleared until the next one loads")
+                    clearSong()
+                }
+                return
+            }
             if e.arrangement != arrangement || (tones.isEmpty && e.tones != nil) || (songParts.isEmpty && e.parts != nil) {
                 setSong(e)
             }
@@ -294,6 +301,21 @@ final class Companion: ObservableObject {
         default:
             break
         }
+    }
+
+    private func clearSong() {
+        song = nil
+        artist = ""
+        arrangement = ""
+        archive = ""
+        songTones = []
+        songParts = []
+        tones = []
+        active = nil
+        activeSlot = nil
+        activeCategory = nil
+        songTonesKey = ""
+        madeTones = nil
     }
 
     private func setSong(_ e: GameEvent) {
