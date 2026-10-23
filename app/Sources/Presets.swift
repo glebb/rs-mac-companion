@@ -3,8 +3,9 @@ import Foundation
 /// The tone -> preset mapping in DATA_DIR/presets.json, shared with rstone.py and
 /// make_catalog.py and evaluated the same way as presets.py (first match wins):
 ///   1. songs: per arrangement and slot   2. tones: per tone key
-///   3. rules: by tags ("all"/"any"), words in the tone key ("name"), the tone's amp ("amp") and
-///      its gain knob ("gain": at least)   4. default
+///   3. rules: by tags ("all"/"any"), words in the tone key ("name"), the tone's amp ("amp"), its
+///      gain knob ("gain": at least) and how distorted its rig is ("drive": clean, crunch or heavy)
+///   4. default
 /// The result of 3 or 4 may then be changed by the song's artist ("artists": {"Bon Jovi":
 /// {"Heavy": "Crunch"}}). The resulting preset name is read as a category: a category name
 /// itself, or the "categories" section (e.g. "Distortion": "Heavy"). Overrides made in the app write
@@ -47,12 +48,14 @@ final class Presets {
         return true
     }
 
-    /// The tone to map: its key and tags, and its amp and gain knob (0-100) if known.
+    /// The tone to map: its key and tags, and if known its amp, gain knob (0-100) and drive (0-1,
+    /// Rig.drive).
     struct Tone {
         let key: String
         let descriptors: [String]
         var amp: String? = nil
         var gain: Double? = nil
+        var drive: Double? = nil
     }
 
     /// With overrides false, only the rules, the default and the artist section count: what the
@@ -103,9 +106,15 @@ final class Presets {
             if let min = (rule["gain"] as? NSNumber)?.doubleValue {
                 guard let gain = tone.gain, gain >= min else { continue }
             }
+            if let bands = rule["drive"] as? [String] {
+                guard let band = Rig.band(tone.drive), bands.contains(where: { $0.lowercased() == band }) else { continue }
+            }
             var gear = ""
             if rule["amp"] != nil || rule["gain"] != nil {
                 gear = ", amp \(amp.isEmpty ? "?" : amp) gain " + (tone.gain.map { String(format: "%g", $0) } ?? "?")
+            }
+            if rule["drive"] != nil, let d = tone.drive, let band = Rig.band(d) {
+                gear += String(format: ", drive %.2f ", d) + band
             }
             let any = rule["any"] as? [String], names = rule["name"] as? [String]
             if let any, !tags.isDisjoint(with: any) {

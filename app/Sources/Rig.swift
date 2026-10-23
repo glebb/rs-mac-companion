@@ -94,6 +94,12 @@ enum Rig {
         return min(d, 1)
     }
 
+    /// "clean", "crunch" or "heavy" for a drive value, as rig.py's band(); nil if unknown.
+    static func band(_ d: Double?) -> String? {
+        guard let d else { return nil }
+        return d < 1.0 / 3 ? "clean" : d < 2.0 / 3 ? "crunch" : "heavy"
+    }
+
     // MARK: Effects
 
     struct Delay { let key: String; let time: Double?; let mix: Double?; let feedback: Double? }

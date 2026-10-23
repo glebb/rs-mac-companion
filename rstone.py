@@ -26,6 +26,7 @@ import threading
 import time
 
 import paths
+import rig
 from presets import Presets
 
 HERE = paths.ROOT
@@ -331,7 +332,8 @@ def main():
         key, desc = tone_info(arr, slot)
         t = tone_def(arr, key)
         preset, why = presets.get(arr["arrangement"], SLOTS[slot], key, desc,
-                                  artist=arr["artist"], amp=t.get("amp", ""), gain=t.get("gain"))
+                                  artist=arr["artist"], amp=t.get("amp", ""), gain=t.get("gain"),
+                                  drive=rig.drive(t.get("rig") or {}, t.get("gain")))
         event = {"event": "tone", "song": arr["song"], "artist": arr["artist"],
                  "arrangement": arr["arrangement"], "slot": SLOTS[slot], "tone": key,
                  "descriptors": desc, "preset": preset, "preset_reason": why, "source": source}

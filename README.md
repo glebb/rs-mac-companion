@@ -233,7 +233,8 @@ re-read it while running. First match wins:
    changes go here)
 2. `tones`: per tone key, e.g. `{"skid18an_dist": "Crunch"}`
 3. `rules`: by the game's tone tags (CLEAN, DISTORTION, LEAD, OVERDRIVE, ACOUSTIC, BASS, ...), the
-   tone's amp and its gain setting, and then by words in the tone's name
+   tone's amp, its gain setting and how distorted its amp and pedals are, and then by words in
+   the tone's name
 4. `default`
 
 Then `artists` can change what the rules gave for a whole band, e.g.
@@ -263,7 +264,9 @@ song index at startup, and again when a song isn't in it.)
   the words `skid`, `an`, `dist`), or, for words of 4+ letters, appears anywhere in it;
 - `amp`: required: the tone's amp is one of these (`"HG500"` or `"Amp_HG500"`; the amp keys are
   in `tone_catalog.csv`);
-- `gain`: required: the amp's gain knob (0–100, as set in the tone) is at least this.
+- `gain`: required: the amp's gain knob (0–100, as set in the tone) is at least this;
+- `drive`: required: how distorted the tone's amp and pedals are is one of these: `"clean"`,
+  `"crunch"`, `"heavy"` (the `drive` and `band` columns of `tone_catalog.csv`).
 
 A rule matches when all its required conditions hold and, if it has `any` or `name`, one of
 those matches too.
@@ -273,8 +276,9 @@ Write tags in capitals, as the game does (`"HIGH GAIN"`, not `"high gain"`); ton
 
 **The default rules**, in order: bass tones with drive tags → Bass Drive; other bass → Bass;
 ACOUSTIC → Acoustic; LEAD → Lead; HIGH GAIN → Distortion (Heavy); DISTORTION / FUZZ on a
-high-gain amp → Distortion (Heavy); other DISTORTION / FUZZ / OVERDRIVE → Crunch; clean and
-effect tags (CLEAN, CHORUS, REVERB, DELAY, ...) → Clean. Only
+high-gain amp → Distortion (Heavy); other DISTORTION / FUZZ / OVERDRIVE → Crunch; CLEAN →
+Clean; effect tags only (CHORUS, REVERB, DELAY, ECHO, FILTER, ...) → by drive: Distortion
+(Heavy), Crunch or Clean. Only
 then the tone's name is tried (`lead`, `solo`, `dist`, `metal`, `crunch`, `od`, `clean`, ...),
 and anything left goes to `default` (Clean). Order matters: a tone tagged LEAD + DISTORTION
 becomes Lead because the LEAD rule comes first.
@@ -289,6 +293,9 @@ becomes Lead because the LEAD rule comes first.
   and low-gain amps (TW, EN30, AT, BT, CA38, Plexi, JTM45, Bluesbreaker, ...) Crunch. Expect
   about one band in four on the wrong side, e.g. Bon Jovi on Heavy or some Metallica on Crunch:
   fix those with `artists`.
+- Tags often name only a tone's effect (ECHO, CHORUS, FILTER, ...), not its gain. Such tones go
+  by their drive, which is estimated from the amp model, its gain knob and the drive pedals.
+- LEAD wins over everything after it, so a clean lead tone (e.g. "Losing My Religion") is Lead.
 - Everything ends up as one of four categories, so close tones share a preset.
 
 **Tuning it:**

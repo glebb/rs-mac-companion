@@ -57,7 +57,8 @@ with open(paths.SONGS_CSV, "w", newline="") as f:
             tones.setdefault(key.lower(), t)
             uses[key.lower()].add(f"{a['artist']} - {a['song']} ({a['path']})")
             row_presets.append(presets.get(a["arrangement"], SLOTS[i], key, t["descriptors"], artist=a["artist"],
-                                           amp=t.get("amp", ""), gain=t.get("gain"))[0])
+                                           amp=t.get("amp", ""), gain=t.get("gain"),
+                                           drive=rig.drive(t.get("rig") or {}, t.get("gain")))[0])
             row_drives.append(num(rig.drive(t.get("rig") or {}, t.get("gain"))))
         tuning = rig.tuning_name(a.get("tuning"), bass=a["path"] == "Bass")
         w.writerow([a["artist"], a["song"], a["songKey"], a["arrangement"], a["path"], tuning or "",
@@ -69,7 +70,8 @@ with open(paths.TONE_CATALOG_CSV, "w", newline="") as f:
     w.writerow(["tone_key", "descriptors", "preset", "matched_by", "amp", "gain", "pedals", "drive", "band",
                 "effects", "song_count", "example_songs"])
     for key, t in sorted(tones.items(), key=lambda kv: -len(uses[kv[0]])):
-        preset, why = presets.get("", "", t["key"], t["descriptors"], amp=t.get("amp", ""), gain=t.get("gain"))
+        preset, why = presets.get("", "", t["key"], t["descriptors"], amp=t.get("amp", ""), gain=t.get("gain"),
+                                  drive=rig.drive(t.get("rig") or {}, t.get("gain")))
         gear = [g.split("=", 1) for g in t.get("gear", [])]
         amp = next((v for k, v in gear if k == "Amp"), "")
         pedals = " ".join(v for k, v in gear if "Pedal" in k)

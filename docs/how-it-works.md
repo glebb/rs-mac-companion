@@ -103,8 +103,9 @@ catch up, and tells it whether the game (with the dylib) is running.
 **Mapping** a tone to a category (first match wins, like `rstone.py`):
 1. `songs`: per arrangement and slot (the app's overrides go here)
 2. `tones`: per tone key (hand edits)
-3. `rules`: by tags (`any` / `all`), words in the tone key (`name`), the tone's amp (`amp`) and its
-   gain knob (`gain`, at least)
+3. `rules`: by tags (`any` / `all`), words in the tone key (`name`), the tone's amp (`amp`), its
+   gain knob (`gain`, at least) and its drive band (`drive`: clean / crunch / heavy, from
+   `Rig.drive` on the gear the app reads from the song's archive when the song loads)
 4. `default`
 
 then `artists` may change the result of 3 or 4 for the song's artist (`{"Bon Jovi": {"Heavy":

@@ -53,6 +53,8 @@ final class Companion: ObservableObject {
     private var active: GameEvent.Tone?
     private var songTones: [GameEvent.Tone] = []
     private var songParts: [GameEvent.Part] = []
+    private var toneDrives: [String: Double] = [:]  // tone key (lowercased) -> drive 0-1, from the song's files
+    private var drivesKey = ""                      // archive|song the drives were read for
     private let log: FileHandle?
     private(set) var overlay: Overlay!
 
@@ -316,6 +318,8 @@ final class Companion: ObservableObject {
         activeCategory = nil
         songTonesKey = ""
         madeTones = nil
+        toneDrives = [:]
+        drivesKey = ""
     }
 
     private func setSong(_ e: GameEvent) {
@@ -325,8 +329,29 @@ final class Companion: ObservableObject {
         archive = e.archive ?? archive
         if let list = e.tones { songTones = list }
         if let list = e.parts { songParts = list }
+        readDrives()
         tones = rows()
         makeSongTones()
+    }
+
+    /// The song's file name prefix ("selftrap" for "selftrap_rhythm").
+    private var songPrefix: String {
+        arrangement.lastIndex(of: "_").map { String(arrangement[..<$0]) } ?? arrangement
+    }
+
+    /// Each tone's drive (how distorted its rig is, for the rules' "drive") from the song's
+    /// archive, once per song (a few ms).
+    private func readDrives() {
+        let key = archive + "|" + songPrefix.lowercased()
+        guard key != drivesKey else { return }
+        drivesKey = key
+        toneDrives = [:]
+        guard !archive.isEmpty, let arrangements = Rig.read(archive: archive, prefix: songPrefix) else { return }
+        for a in arrangements {
+            for key in a.slots where !key.isEmpty {
+                if let t = Rig.tone(a, key: key), let d = Rig.drive(t) { toneDrives[key.lowercased()] = d }
+            }
+        }
     }
 
     /// With song tone messages on, reads the song's gear from its archive and sends the song's
@@ -339,7 +364,7 @@ final class Companion: ObservableObject {
         let key = archive + "|" + arrangement
         guard force || key != songTonesKey else { return }
         songTonesKey = key
-        let prefix = arrangement.lastIndex(of: "_").map { String(arrangement[..<$0]) } ?? arrangement
+        let prefix = songPrefix
         let t0 = Date()
         guard let arrangements = Rig.read(archive: archive, prefix: prefix),
               var made = SongTones.make(song: song, artist: artist, arrangement: arrangement, from: arrangements,
@@ -394,7 +419,8 @@ final class Companion: ObservableObject {
 
     private func match(_ t: GameEvent.Tone, overrides: Bool = true) -> Presets.Match {
         presets.match(arrangement: arrangement, slot: t.slot,
-                      tone: Presets.Tone(key: t.tone, descriptors: t.descriptors, amp: t.amp, gain: t.gain),
+                      tone: Presets.Tone(key: t.tone, descriptors: t.descriptors, amp: t.amp, gain: t.gain,
+                                         drive: toneDrives[t.tone.lowercased()]),
                       artist: artist, overrides: overrides)
     }
 

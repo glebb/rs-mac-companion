@@ -6,6 +6,7 @@ import os
 import re
 
 import paths
+import rig
 
 CATEGORIES = ["Clean", "Crunch", "Heavy", "Lead"]
 # Preset names used before categories existed, for files without a "categories" section.
@@ -43,9 +44,9 @@ class Presets:
                 return c
         return BUILTIN_CATEGORIES.get(preset.lower(), "Clean")
 
-    def get(self, arrangement, slot, key, descriptors, artist="", amp="", gain=None):
-        """Returns (preset, reason). amp is the tone's amp key and gain its gain knob (0-100, or
-        None if unknown)."""
+    def get(self, arrangement, slot, key, descriptors, artist="", amp="", gain=None, drive=None):
+        """Returns (preset, reason). amp is the tone's amp key, gain its gain knob (0-100) and
+        drive how distorted its rig is (0-1, rig.drive), each None if unknown."""
         self.reload()
         d = self.data
         song = d.get("songs", {}).get(arrangement, {})
@@ -54,7 +55,7 @@ class Presets:
         tones = {k.lower(): v for k, v in d.get("tones", {}).items()}
         if key.lower() in tones:
             return tones[key.lower()], "tone override"
-        preset, why = self.rule(key, descriptors, amp, gain)
+        preset, why = self.rule(key, descriptors, amp, gain, drive)
         artists = {k.strip().lower(): v for k, v in d.get("artists", {}).items()}
         remap = artists.get((artist or "").strip().lower())
         if isinstance(remap, dict):
@@ -64,7 +65,7 @@ class Presets:
                 return new, f"{why}, artist {artist.strip()}"
         return preset, why
 
-    def rule(self, key, descriptors, amp, gain):
+    def rule(self, key, descriptors, amp, gain, drive=None):
         """The rules and the default: (preset, reason)."""
         d = self.data
         tags = {x.upper() for x in descriptors}
@@ -76,9 +77,13 @@ class Presets:
                 continue
             if "gain" in r and (gain is None or gain < r["gain"]):
                 continue
+            if "drive" in r and rig.band(drive) not in {b.lower() for b in r["drive"]}:
+                continue
             gear = ""
             if "amp" in r or "gain" in r:
                 gear = f", amp {amp_name(amp) or '?'} gain " + ("?" if gain is None else f"{gain:g}")
+            if "drive" in r:
+                gear += f", drive {drive:.2f} {rig.band(drive)}"
             if "any" in r and tags & set(r["any"]):
                 return r["preset"], "tags " + "+".join(sorted(tags)) + gear
             if "name" in r and any(w in words or (len(w) >= 4 and w in key.lower()) for w in r["name"]):
