@@ -9,7 +9,7 @@
 #   --release  builds it for Apple Silicon and Intel and zips it into app/build/RS-Companion.zip
 set -e
 cd "$(dirname "$0")"
-VERSION=1.1.0
+VERSION=1.2.0
 APP="build/RS Companion.app"
 # This Mac's architecture, or both for a release.
 ARCHS=$(uname -m)
