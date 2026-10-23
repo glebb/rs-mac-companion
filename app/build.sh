@@ -19,7 +19,7 @@ cp ../presets.default.json "$APP/Contents/Resources/"  # seeds DATA_DIR/presets.
 cp -R ../third_party/rocksniffer-addons "$APP/Contents/Resources/addons"
 # The in-game library: x86_64, because the game runs under Rosetta.
 clang -arch x86_64 -O2 -Wall -dynamiclib -install_name @executable_path/librscompanion.dylib \
-  -o "$APP/Contents/Resources/librscompanion.dylib" ../native/rscompanion.c ../native/rsfile.c -lz
+  -o "$APP/Contents/Resources/librscompanion.dylib" ../native/rscompanion.c ../native/rscore.c ../native/rsfile.c -lz
 codesign -s - -f "$APP/Contents/Resources/librscompanion.dylib" >/dev/null 2>&1
 # The app reads song archives for the overlays with the same reader (native/rsfile.c).
 mkdir -p build/obj

@@ -15,6 +15,6 @@ codesign -s - -f --entitlements native/debugger.entitlements build/rsprobe
 # is for the tests.
 clang -O2 -Wall -o build/rstool native/rstool.c native/rsfile.c -lz
 clang -arch x86_64 -O2 -Wall -dynamiclib -install_name @executable_path/librscompanion.dylib \
-  -o build/librscompanion.dylib native/rscompanion.c native/rsfile.c -lz
+  -o build/librscompanion.dylib native/rscompanion.c native/rscore.c native/rsfile.c -lz
 codesign -s - -f build/librscompanion.dylib
 echo "built build/rsprobe, build/rstool and build/librscompanion.dylib"
