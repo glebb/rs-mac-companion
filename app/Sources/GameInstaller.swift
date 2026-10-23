@@ -6,6 +6,7 @@ import Foundation
 /// it, and tells which state the game is in.
 struct GameInstaller {
     static let defaultGameDir = NSHomeDirectory() + "/Library/Application Support/Steam/steamapps/common/Rocksmith2014"
+    static let steamAppID = "221680"
     static let dylibName = "librscompanion.dylib"
     static let loadPath = "@executable_path/" + dylibName
     /// Earlier names of the companion library (prototype installs), replaced on install.
@@ -38,6 +39,61 @@ struct GameInstaller {
             case .noBundledLibrary: "This app does not contain the Rocksmith library (build it with app/build.sh)."
             case let .failed(text): text
             }
+        }
+    }
+
+    // MARK: Finding the game
+
+    private static var found: String?
+
+    /// Where Steam installed the game: every Steam library (libraries on drives that aren't
+    /// connected are skipped), then /Applications. Steam's default folder if it's nowhere.
+    /// Remembered until that folder goes away.
+    static func steamGameDir() -> String {
+        if let found, isGameDir(found) { return found }
+        found = findGame()
+        return found ?? defaultGameDir
+    }
+
+    static func isGameDir(_ dir: String) -> Bool {
+        FileManager.default.fileExists(atPath: dir + "/Rocksmith2014.app/Contents/MacOS/Rocksmith2014")
+    }
+
+    /// The game folder for a path the user picked: the folder itself, Rocksmith2014.app or
+    /// anything inside the app. Nil if it isn't the game.
+    static func gameDir(for path: String) -> String? {
+        var dir = path
+        if let range = dir.range(of: "/Rocksmith2014.app") { dir = String(dir[..<range.lowerBound]) }
+        return isGameDir(dir) ? dir : nil
+    }
+
+    private static func findGame() -> String? {
+        let steam = ProcessInfo.processInfo.environment["RS_STEAM_DIR"]  // for the tests
+            ?? NSHomeDirectory() + "/Library/Application Support/Steam"
+        var libraries = [steam]
+        for list in ["steamapps/libraryfolders.vdf", "config/libraryfolders.vdf"] {
+            if let text = try? String(contentsOfFile: steam + "/" + list, encoding: .utf8) {
+                libraries += vdfValues("path", in: text)
+            }
+        }
+        for library in libraries {
+            // The folder is named in the game's manifest (normally Rocksmith2014).
+            let manifest = try? String(contentsOfFile: library + "/steamapps/appmanifest_\(steamAppID).acf", encoding: .utf8)
+            let names = (manifest.map { vdfValues("installdir", in: $0) } ?? []) + ["Rocksmith2014"]
+            if let dir = names.map({ library + "/steamapps/common/" + $0 }).first(where: isGameDir) { return dir }
+        }
+        return ["/Applications/Rocksmith2014", "/Applications/Rocksmith 2014", NSHomeDirectory() + "/Applications/Rocksmith2014"]
+            .first(where: isGameDir)
+    }
+
+    /// The values of every  "key"  "value"  line in a Steam .vdf/.acf file, unescaped.
+    private static func vdfValues(_ key: String, in text: String) -> [String] {
+        text.split(separator: "\n").compactMap { line in
+            let parts = line.split(separator: "\"", omittingEmptySubsequences: false)
+            guard parts.count >= 5, parts[1] == key else { return nil }
+            // Rejoin the value (between the 3rd and the last quote) and undo backslash escapes.
+            let raw = parts[3 ..< parts.count - 1].joined(separator: "\"")
+            return raw.replacingOccurrences(of: "\\\\", with: "\\")
         }
     }
 

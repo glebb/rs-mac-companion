@@ -77,4 +77,17 @@ echo "6. no game"
 check "status: not found" '[ "$(RS_COMPANION_DATA="$T/data" "$APPBIN" --game-status "$T/nothing")" = "Rocksmith not found" ]'
 check "install fails cleanly" '! RS_COMPANION_DATA="$T/data" "$APPBIN" --install-game "$T/nothing" > /dev/null'
 
+echo "7. finding the game in Steam's libraries"
+S="$T/steam"
+find_game() { RS_STEAM_DIR="$S" "$APPBIN" --find-game; }
+fake_game() { mkdir -p "$1/Rocksmith2014.app/Contents/MacOS" && touch "$1/Rocksmith2014.app/Contents/MacOS/Rocksmith2014"; }
+mkdir -p "$S/steamapps" "$T/drive 2/steamapps"
+printf '"libraryfolders"\n{\n\t"0"\n\t{\n\t\t"path"\t\t"%s"\n\t}\n\t"1"\n\t{\n\t\t"path"\t\t"%s"\n\t}\n}\n' \
+  "$S" "$T/drive 2" > "$S/steamapps/libraryfolders.vdf"
+printf '"AppState"\n{\n\t"appid"\t\t"221680"\n\t"installdir"\t\t"Rocksmith Renamed"\n}\n' > "$T/drive 2/steamapps/appmanifest_221680.acf"
+fake_game "$T/drive 2/steamapps/common/Rocksmith Renamed"
+check "in another library, in the folder its manifest names" '[ "$(find_game)" = "$T/drive 2/steamapps/common/Rocksmith Renamed" ]'
+fake_game "$S/steamapps/common/Rocksmith2014"
+check "Steam's own library first" '[ "$(find_game)" = "$S/steamapps/common/Rocksmith2014" ]'
+
 [ $fails = 0 ] && echo PASS || { echo "FAIL ($fails)"; exit 1; }

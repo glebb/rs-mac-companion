@@ -4,23 +4,25 @@ import Foundation
 ///   --game-status [game folder]      not installed / installed / update available
 ///   --install-game [game folder]     install or update the companion in Rocksmith
 ///   --uninstall-game [game folder]   remove it again
-/// The game folder defaults to the settings' game_dir, else Steam's location.
+///   --find-game                      where Steam installed the game
+/// The game folder defaults to the settings' game_dir, else where Steam installed it.
 @main
 enum Main {
     static func main() {
         let args = Array(CommandLine.arguments.dropFirst())
-        guard let command = args.first, ["--game-status", "--install-game", "--uninstall-game"].contains(command) else {
+        guard let command = args.first, ["--game-status", "--install-game", "--uninstall-game", "--find-game"].contains(command) else {
             RSCompanionApp.main()
             return
         }
         let dataDir = ProcessInfo.processInfo.environment["RS_COMPANION_DATA"]
             ?? NSHomeDirectory() + "/Library/Application Support/rs-mac-companion"
         let gameDir = args.count > 1 ? args[1]
-            : Settings.load(from: dataDir + "/rscompanion.json").gameDir ?? GameInstaller.defaultGameDir
+            : Settings.load(from: dataDir + "/rscompanion.json").gameDir ?? GameInstaller.steamGameDir()
         let installer = GameInstaller(gameDir: gameDir,
                                       bundledDylib: Bundle.main.url(forResource: "librscompanion", withExtension: "dylib"))
         do {
             switch command {
+            case "--find-game": print(GameInstaller.steamGameDir())
             case "--game-status": print(installer.status().summary)
             case "--install-game": print(try installer.install()); print(installer.status().summary)
             case "--uninstall-game": print(try installer.uninstall()); print(installer.status().summary)

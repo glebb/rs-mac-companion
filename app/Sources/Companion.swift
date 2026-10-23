@@ -88,7 +88,7 @@ final class Companion: ObservableObject {
     // MARK: Installation in Rocksmith
 
     var installer: GameInstaller {
-        GameInstaller(gameDir: settings.gameDir ?? GameInstaller.defaultGameDir,
+        GameInstaller(gameDir: settings.gameDir ?? GameInstaller.steamGameDir(),
                       bundledDylib: Bundle.main.url(forResource: "librscompanion", withExtension: "dylib"))
     }
 
@@ -146,6 +146,11 @@ final class Companion: ObservableObject {
             record("uninstall failed: \(error)")
         }
         checkGame(force: true)
+    }
+
+    /// The folder picked in Settings isn't the game.
+    func notGame(_ name: String) {
+        installMessage = "\(name) isn't Rocksmith: choose the Rocksmith2014 folder or Rocksmith2014.app."
     }
 
     func setGameDir(_ dir: String?) {

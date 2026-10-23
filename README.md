@@ -44,22 +44,43 @@ Both need Rocksmith 2014 Remastered from Steam on macOS (it runs under Rosetta o
 ### What you need
 
 - Rocksmith 2014 Remastered (Steam, macOS)
-- To build the app: Apple's **Command Line Tools** (`xcode-select --install`; they include
-  `clang` and `swiftc`). Nothing else: no Python, no `build.sh`, no Developer Mode.
+- macOS 14 (Sonoma) or later, Apple Silicon or Intel (tested on Apple Silicon)
 
-### Build and install
+### Install
+
+1. Download `RS-Companion.zip` from the [releases](../../releases) page and open it; you get
+   `RS Companion.app`. Drag it into your **Applications** folder.
+2. Open it. The first time, macOS says it can't verify the developer (the app isn't notarized by
+   Apple). Go to **System Settings → Privacy & Security**, scroll down, click **Open Anyway**
+   next to RS Companion, and confirm. On older macOS versions, right-click (or Control-click) the
+   app, choose **Open**, then **Open** again. A guitar icon appears in the menu bar.
+3. Quit Rocksmith if it's running, and click **Install** in RS Companion (in the notice in its
+   window, or in Settings › Rocksmith). It adds the companion library to the game and keeps a
+   backup of the game executable as `Rocksmith2014.orig`
+   ([what exactly it does](docs/how-it-works.md#installing-into-the-game)).
+4. Start Rocksmith from Steam as usual.
+
+RS Companion finds the game in your Steam libraries, including ones on other drives (connect the
+drive first). If it can't, choose the `Rocksmith2014` folder or `Rocksmith2014.app` under
+Settings › Rocksmith › Change Folder…, then click Install.
+
+**Updating:** download the new zip and replace the app in Applications. If the new version
+brings a newer game library, the app says **Update**: quit Rocksmith and click it. The app's
+version is shown at the bottom of its Settings.
+
+### Build from source
+
+Needs Apple's **Command Line Tools** (`xcode-select --install`; they include `clang` and
+`swiftc`). Nothing else: no Python, no `build.sh`, no Developer Mode.
 
 ```bash
 app/build.sh --install
 ```
 
-builds `RS Companion.app`, copies it to /Applications and starts it: a guitar icon appears in the
-menu bar. (`app/build.sh --run` builds and starts it from `app/build/` instead.)
-
-Then quit Rocksmith and click **Install** in RS Companion (in the notice in its window, or in
-Settings › Rocksmith). It adds the companion library to the game and keeps a backup of the game
-executable as `Rocksmith2014.orig` ([what exactly it does](docs/how-it-works.md#installing-into-the-game)).
-If your game isn't in Steam's default folder, choose it under Settings › Rocksmith first.
+builds `RS Companion.app`, copies it to /Applications and starts it. `app/build.sh --run` builds
+and starts it from `app/build/` instead, and `app/build.sh --release` builds it for Apple Silicon
+and Intel and zips it into `app/build/RS-Companion.zip`, the file the releases ship (the version
+is set at the top of `app/build.sh`). Then continue at step 3 above.
 
 The app tells you when something needs doing:
 - **Not installed** (also after a Steam update replaced the game executable): click Install.
@@ -325,7 +346,7 @@ Build with `./build.sh` (Command Line Tools only): `build/rsprobe`, `build/rstoo
 | `python3 tools/event_listener.py` | print the events the game's library sends (quit RS Companion first: only one can listen) |
 | `build/midi_monitor` | print MIDI from the "Rocksmith Companion" source (`swiftc -O tools/midi_monitor.swift -o build/midi_monitor`) |
 | `tools/add_load_dylib.py` | add a library load to an executable by hand (the app's installer does the same) |
-| `"RS Companion.app/Contents/MacOS/RSCompanion" --game-status \| --install-game \| --uninstall-game [folder]` | the app's installer without its window |
+| `"RS Companion.app/Contents/MacOS/RSCompanion" --game-status \| --install-game \| --uninstall-game [folder]` | the app's installer without its window; `--find-game` prints where it finds the game |
 | `tools/discovery/` | investigating the game's memory through `rsprobe` (needs Developer Mode); see [game-memory.md](docs/game-memory.md#12-finding-something-new) |
 
 Tests (none touch your data; they need the game installed, and use the song *Self Trap* that comes

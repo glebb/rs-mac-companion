@@ -170,6 +170,11 @@ code ([credits](../README.md#credits)). With `overlay_enabled`:
 The app installs itself into the game (`GameInstaller.swift`, `MachOPatcher.swift`); the library
 is bundled in the app (`Contents/Resources/librscompanion.dylib`, built by `app/build.sh`).
 
+**Finding the game:** the folder set in Settings, else where Steam installed it: Steam's own
+library, then every library in `steamapps/libraryfolders.vdf` (Rocksmith's app ID is 221680; its
+`appmanifest_221680.acf` names the folder under `steamapps/common`, normally `Rocksmith2014`),
+then `/Applications`. Libraries on drives that aren't connected are skipped.
+
 **Install / Update** (refused while that game folder's Rocksmith is running):
 1. If the executable has no companion load command yet, copy it to `Rocksmith2014.orig` (the backup
    is never overwritten with a patched file).

@@ -131,6 +131,8 @@ struct SettingsView: View {
                 if let loginProblem {
                     Text(loginProblem).font(.caption).foregroundStyle(.red)
                 }
+                Text("RS Companion \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(14)
@@ -184,14 +186,17 @@ struct SettingsView: View {
 
     private func chooseGameDir() {
         let panel = NSOpenPanel()
-        panel.message = "Choose the Rocksmith2014 folder (the one that contains Rocksmith2014.app)."
+        panel.message = "Choose the Rocksmith2014 folder or Rocksmith2014.app."
         panel.canChooseDirectories = true
-        panel.canChooseFiles = false
+        panel.canChooseFiles = true  // so Rocksmith2014.app can be picked
         panel.directoryURL = URL(fileURLWithPath: companion.installer.gameDir)
         NSApp.activate(ignoringOtherApps: true)
-        if panel.runModal() == .OK, let url = panel.url {
-            companion.setGameDir(url.path == GameInstaller.defaultGameDir ? nil : url.path)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let dir = GameInstaller.gameDir(for: url.path) else {
+            companion.notGame(url.lastPathComponent)
+            return
         }
+        companion.setGameDir(dir == GameInstaller.steamGameDir() ? nil : dir)
     }
 
     private func setLoginItem(_ on: Bool) {

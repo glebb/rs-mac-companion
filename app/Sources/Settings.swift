@@ -3,12 +3,12 @@ import Foundation
 /// Settings in DATA_DIR/rscompanion.json, shared with the in-game dylib (which reads lead_ms and
 /// overlay_enabled and picks up changes within a second). Keys this app does not know are kept.
 ///   {"lead_ms": 100, "midi_channel": 1, "programs": {"Clean": 0, "Crunch": 1, "Heavy": 2, "Lead": 3},
-///    "game_dir": "/path/to/Rocksmith2014",     (only when not Steam's default)
+///    "game_dir": "/path/to/Rocksmith2014",     (only when not where Steam has it)
 ///    "overlay_enabled": false, "overlay_port": 9938,
 ///    "song_tones": false,                      (a SysEx describing each song's tones, SongTones.swift)
 ///    "song_tone_programs": true, "song_tone_first_program": 8}   (and Program Changes that play them)
 struct Settings: Equatable {
-    var gameDir: String?            // the Rocksmith2014 folder, if not Steam's default
+    var gameDir: String?            // the Rocksmith2014 folder, if not where Steam has it
     var leadMs = 100
     var channel = 1                 // 1-16
     var programs = [0, 1, 2, 3]     // Program Change per category (Clean, Crunch, Heavy, Lead)
