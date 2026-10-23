@@ -113,8 +113,9 @@ category ones.
 
 A tool that receives the message makes a sound for each tone from your own sounds.
 [Bandbox Stagehand](https://github.com/glebb/bandbox-stagehand) does this on the JBL BandBox:
-it builds each tone from the slot of its category in the bank named after the style, then adds
-the song's effects. Any other tool can use the message the same way. The format, when it's
+the style picks a bank (a set of Clean, Crunch, Heavy and Lead tones you set up), each tone starts
+from its category's tone in that bank, and the song's effects go on top. So the bank gives the
+amp and drive, and the song the effects. Any other tool can use the message the same way. The format, when it's
 sent and how to receive it: [docs/song-tone-messages.md](docs/song-tone-messages.md). The
 style labels and thresholds are set in [presets](#presets) (`styles`, `song_styles`).
 
