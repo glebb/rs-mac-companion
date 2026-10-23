@@ -75,8 +75,15 @@ static double g_song_loaded_at;
 static char *g_fd_path[MAX_FDS];
 static pthread_mutex_t g_fd_lock = PTHREAD_MUTEX_INITIALIZER;
 
+// The game loads any file in dlc/ with ".psarc" in its name, also "x_m.psarc.backup" (left by
+// song tools); with two copies of a pack it may read a song from either.
+static int is_archive(const char *path) {
+    const char *name = strrchr(path, '/');
+    return strstr(name ? name + 1 : path, ".psarc") != NULL;
+}
+
 static void track_open(const char *path, int fd) {
-    if (!path || fd < 0 || fd >= MAX_FDS || !ends_with(path, ".psarc")) return;
+    if (!path || fd < 0 || fd >= MAX_FDS || !is_archive(path)) return;
     char *copy = strdup(path);
     pthread_mutex_lock(&g_fd_lock);
     free(g_fd_path[fd]);
