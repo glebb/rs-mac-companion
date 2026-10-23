@@ -10,8 +10,8 @@
     "rstone re-reads this file while running, so edits apply on the next tone change.",
     "The companion app switches between four categories (Clean, Crunch, Heavy, Lead; MIDI Program Change 0-3).",
     "Its overrides use those names; 'categories' says which category every other preset name means.",
-    "Song-made tones (Stagehand): 'rigs' picks the rig a song's tones start from by the song's heaviness",
-    "(0-1, see songs.csv), the last whose 'from' it reaches; 'song_rigs' names one for a song key or an artist,",
+    "Song-made tones (Stagehand): 'banks' picks the bank (a set of tone slots) a song's tones start from by the song's heaviness",
+    "(0-1, see songs.csv), the last whose 'from' it reaches; 'song_banks' names one for a song key or an artist,",
     "e.g. {\"AC/DC\": \"Classic rock\", \"skid18an\": \"Metal\"}."
   ],
   "categories": {"Clean": "Clean", "Crunch": "Crunch", "Distortion": "Heavy", "Heavy": "Heavy", "Lead": "Lead",
@@ -42,6 +42,6 @@
     {"preset": "Clean", "name": ["clean", "cln"]}
   ],
   "default": "Clean",
-  "rigs": [{"name": "Soft"}, {"name": "Classic rock", "from": 0.4}, {"name": "Metal", "from": 0.75}],
-  "song_rigs": {}
+  "banks": [{"name": "Soft"}, {"name": "Classic rock", "from": 0.4}, {"name": "Metal", "from": 0.75}],
+  "song_banks": {}
 }

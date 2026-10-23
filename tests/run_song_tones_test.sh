@@ -3,7 +3,7 @@
 # run_app_test.sh: the in-game dylib runs in the stand-in (tests/standin_dylib.c) with Self Trap
 # (Rhythm, comes with the game), the app has "song_tones" on, and tools/midi_monitor.swift prints
 # what it sends (about 50 s). Expected: one SysEx when the song loads, manufacturer 0x7D then
-# JSON naming the rig and the song's two tones in the order they first play (SelfTrap_clean on
+# JSON naming the bank and the song's two tones in the order they first play (SelfTrap_clean on
 # Program Change 8, SelfTrap_dist on 9, both without delay or modulation); then Program Change
 # 8 at song start and 9 at the first change (~40 s, from the banner), on MIDI channel 1.
 # Uses a temporary data folder, so your own data and a running RS Companion are not touched
@@ -51,8 +51,8 @@ else:
         problems.append("SysEx doesn't start with manufacturer 0x7D")
     msg = json.loads(raw[1:])
     tones = [(t["program"], t["key"]) for t in msg["tones"]]
-    if msg.get("kind") != "song-tones" or msg.get("song") != "Self Trap" or not msg.get("rig"):
-        problems.append(f"unexpected message header: { {k: msg.get(k) for k in ('kind', 'song', 'rig')} }")
+    if msg.get("kind") != "song-tones" or msg.get("song") != "Self Trap" or not msg.get("bank"):
+        problems.append(f"unexpected message header: { {k: msg.get(k) for k in ('kind', 'song', 'bank')} }")
     if tones != [(8, "SelfTrap_clean"), (9, "SelfTrap_dist")]:
         problems.append(f"tones: {tones}")
     for t in msg["tones"]:

@@ -316,7 +316,7 @@ final class Companion: ObservableObject {
                                             self.match(GameEvent.Tone(slot: slot, tone: key, descriptors: self.descriptors(key)))
                                                 .category
                                         },
-                                        rig: { self.presets.rig(heaviness: $0, artist: self.artist, songKey: prefix) })
+                                        bank: { self.presets.bank(heaviness: $0, artist: self.artist, songKey: prefix) })
         else {
             madeTones = nil
             return record("song tones: could not read \(arrangement) from \(archive)")

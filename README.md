@@ -85,7 +85,7 @@ Changed tones show a pencil and what they'd be automatically; ↺ puts them back
 - the Rocksmith folder, install / update / uninstall;
 - song-made tones for [Bandbox Stagehand](https://github.com/glebb/bandbox-stagehand) (off by default):
   when a song loads, Stagehand builds up to five tones for it from your own tones and the song's
-  effects, and Program Change 8–12 switch between them ([rig-plan.md](rig-plan.md));
+  effects, and Program Change 8–12 switch between them ([song-tones-plan.md](song-tones-plan.md));
 - stream overlays (below);
 - open at login (install the app in /Applications first).
 
