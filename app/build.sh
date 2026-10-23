@@ -1,6 +1,7 @@
 #!/bin/sh
 # Builds "RS Companion.app" (menu-bar only, no Dock icon) into app/build/. No Xcode project.
 # The app contains the in-game library (librscompanion.dylib), which it installs into Rocksmith,
+# the RockNRoller library (librnrcompanion.dylib), which RockNRoller loads when opened from it,
 # and RockSniffer's overlay pages (third_party/rocksniffer-addons), which it serves.
 # Usage: app/build.sh [--run | --install | --release]
 #   --run      also (re)starts it from app/build/
@@ -21,6 +22,10 @@ cp -R ../third_party/rocksniffer-addons "$APP/Contents/Resources/addons"
 clang -arch x86_64 -O2 -Wall -dynamiclib -install_name @executable_path/librscompanion.dylib \
   -o "$APP/Contents/Resources/librscompanion.dylib" ../native/rscompanion.c ../native/rscore.c ../native/rsfile.c -lz
 codesign -s - -f "$APP/Contents/Resources/librscompanion.dylib" >/dev/null 2>&1
+# The library RockNRoller loads when opened from the app: arm64, like RockNRoller.
+clang -arch arm64 -O2 -Wall -dynamiclib -install_name @rpath/librnrcompanion.dylib \
+  -o "$APP/Contents/Resources/librnrcompanion.dylib" ../native/rnrcompanion.c ../native/rscore.c ../native/rsfile.c -lz
+codesign -s - -f "$APP/Contents/Resources/librnrcompanion.dylib" >/dev/null 2>&1
 # The app reads song archives for the overlays with the same reader (native/rsfile.c).
 mkdir -p build/obj
 for ARCH in $ARCHS; do

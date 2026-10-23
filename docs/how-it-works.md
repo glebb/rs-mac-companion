@@ -13,6 +13,10 @@ they differ in where the detection runs.
 
 ## In-game: dylib + menu-bar app
 
+RockNRoller, a Rocksmith chart player, gets a library of its own that sends the same events
+(`native/rnrcompanion.c`; it reads the song, part and position by name, see
+[rocknroller.md](rocknroller.md)). What both libraries share is in `native/rscore.c`.
+
 ```
 Rocksmith2014 (x86_64, Rosetta)
   + librscompanion.dylib  (native/rscompanion.c + native/rsfile.c, loaded by an LC_LOAD_DYLIB)

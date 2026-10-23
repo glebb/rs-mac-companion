@@ -39,6 +39,10 @@ final class Companion: ObservableObject {
     @Published private(set) var installMessage: String?
     @Published private(set) var gameRunning = false
     private var gameRunningSince: Date?
+    @Published private(set) var game: String?           // the last heartbeat's "game"; nil: Rocksmith
+    @Published private(set) var rnrRunning = false
+    private var rnrRunningSince: Date?
+    @Published private(set) var rnrMessage: String?
     private var installCheckKey: [Date?] = []
 
     let dataDir: String
@@ -95,8 +99,12 @@ final class Companion: ObservableObject {
                       bundledDylib: Bundle.main.url(forResource: "librscompanion", withExtension: "dylib"))
     }
 
-    /// Whether the game runs, and its install status (re-read only when the files change).
+    /// Whether the game (and RockNRoller) runs, and the game's install status (re-read only when
+    /// the files change).
     func checkGame(force: Bool = false) {
+        let rnr = !RockNRoller.running.isEmpty
+        if rnr != rnrRunning { rnrRunningSince = rnr ? Date() : nil }
+        rnrRunning = rnr
         let i = installer
         let running = i.gameRunning
         if running != gameRunning { gameRunningSince = running ? Date() : nil }
@@ -109,15 +117,33 @@ final class Companion: ObservableObject {
         installStatus = status
     }
 
+    /// What the button of an attention notice does.
+    enum AttentionAction: Equatable {
+        case installInGame(String)      // its label: Install or Update
+        case openRockNRoller
+
+        var label: String {
+            switch self {
+            case let .installInGame(label): label
+            case .openRockNRoller: "Restart RockNRoller"
+            }
+        }
+    }
+
     /// Something about the installation the user should know or do, for the main window.
-    var attention: (text: String, action: String?)? {
+    var attention: (text: String, action: AttentionAction?)? {
+        if rnrRunning, let since = rnrRunningSince, Date().timeIntervalSince(since) > 5, !connected(to: RockNRoller.game) {
+            return ("RockNRoller is running without the companion.", .openRockNRoller)
+        }
+        // Playing in RockNRoller: how Rocksmith is installed doesn't matter now.
+        if connected(to: RockNRoller.game) { return nil }
         switch installStatus {
         case .gameNotFound: return ("Rocksmith not found. Set its folder in Settings.", nil)
         case .notInstalled:
             let replaced = FileManager.default.fileExists(atPath: installer.backup)
             return (replaced ? "Not installed in Rocksmith. Steam may have updated the game." : "Not installed in Rocksmith yet.",
-                    "Install")
-        case .updateAvailable: return ("An update for Rocksmith is ready.", "Update")
+                    .installInGame("Install"))
+        case .updateAvailable: return ("An update for Rocksmith is ready.", .installInGame("Update"))
         case let .problem(text): return (text, nil)
         case .installed:
             if gameRunning, let since = gameRunningSince, Date().timeIntervalSince(since) > 20, !connected() {
@@ -125,6 +151,37 @@ final class Companion: ObservableObject {
             }
             return nil
         }
+    }
+
+    func perform(_ action: AttentionAction) {
+        switch action {
+        case .installInGame: installInGame()
+        case .openRockNRoller: openRockNRoller()
+        }
+    }
+
+    // MARK: RockNRoller
+
+    /// Opens RockNRoller with the companion library (restarting it if it runs).
+    func openRockNRoller() {
+        rnrMessage = rnrRunning ? "Restarting RockNRoller…" : "Opening RockNRoller…"
+        Task {
+            do {
+                try await RockNRoller.open(dataDir: dataDir)
+                rnrMessage = nil
+                record("opened RockNRoller with the companion library")
+            } catch {
+                rnrMessage = "\(error)"
+                record("opening RockNRoller failed: \(error)")
+            }
+            checkGame()
+        }
+    }
+
+    /// The app a song is picked in, for the window: the connected one, else the ones there are.
+    var gameLabel: String {
+        if connected() { return game == RockNRoller.game ? RockNRoller.name : "Rocksmith" }
+        return RockNRoller.appURL != nil ? "Rocksmith or RockNRoller" : "Rocksmith"
     }
 
     func installInGame() {
@@ -174,6 +231,9 @@ final class Companion: ObservableObject {
         guard let beat = lastHeartbeat else { return false }
         return now.timeIntervalSince(beat) < 3
     }
+
+    /// Connected to that game ("rocknroller"; nil: Rocksmith).
+    func connected(to game: String?) -> Bool { connected() && self.game == game }
 
     func resend() {
         sentProgram = nil
@@ -277,6 +337,10 @@ final class Companion: ObservableObject {
             send(reason: key)
         case "state":
             lastHeartbeat = Date()
+            if e.game != game {
+                game = e.game
+                record("connected to " + (game == RockNRoller.game ? RockNRoller.name : "Rocksmith"))
+            }
             timerLocked = e.timer_locked ?? false
             leadMs = e.lead_ms ?? leadMs
             guard e.song != nil else {

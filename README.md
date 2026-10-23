@@ -99,7 +99,7 @@ custom-song patch, stays as it is.
 
 Start RS Companion and Rocksmith (any order) and pick a song. The menu-bar window shows:
 
-- whether Rocksmith is connected, and whether the song timer is synced (it syncs within a few
+- whether Rocksmith (or RockNRoller) is connected, and whether the song timer is synced (it syncs within a few
   seconds of each song starting, from the game's own record of the playing song; a tone change
   before that comes from the game's on-screen tone text, up to ~1 s late; after that every change
   is on time, slightly early);
@@ -122,6 +122,15 @@ Changed tones show a pencil and what they'd be automatically; ↺ puts them back
 - song tone messages (off by default; see below);
 - stream overlays (below);
 - open at login (install the app in /Applications first).
+
+### RockNRoller
+
+RS Companion also follows [RockNRoller](docs/rocknroller.md), a Rocksmith chart player for macOS
+(Apple Silicon) that plays the same songs: the same presets, Program Changes and song tone
+messages, with the tone of the part in RockNRoller's first panel. Nothing is installed into it:
+click **Open RockNRoller** in RS Companion's window (or Settings › RockNRoller), and RockNRoller
+starts with the companion library loaded. If RockNRoller is already open, or opened from the Dock,
+RS Companion offers **Restart RockNRoller**. Tone changes stay on cue at any playback speed.
 
 ### Song tone messages
 
@@ -386,7 +395,9 @@ Documentation: [how it works](docs/how-it-works.md), [the game's memory](docs/ga
 | Path | Part of | |
 |---|---|---|
 | `app/` | RS Companion | the menu-bar app (Swift) and its installer; `app/build.sh` |
-| `native/rscompanion.c` | RS Companion | the in-game library: song from file reads, arrangement and timer from memory, events |
+| `native/rscompanion.c` | RS Companion | the in-game library: song from file reads, arrangement and timer from memory |
+| `native/rnrcompanion.c` | RS Companion | the library for RockNRoller: song, part and position from its exported names |
+| `native/rscore.c`, `rscore.h` | RS Companion | what both libraries share: songs and tone timelines, events, settings |
 | `native/rsfile.c`, `rsfile.h` | both | song file reader (PSARC, SNG tone timeline, manifests) in C |
 | `presets.default.json` | both | default tone → preset mapping |
 | `third_party/rocksniffer-addons/` | RS Companion | RockSniffer's overlay pages (MIT), served by the app |
@@ -437,3 +448,5 @@ RockSniffer's overlay pages (below).
   know whether a receiver acted on a song tone message.
 - RS Companion has to be installed into the game again after Steam replaces the game executable
   (the app tells you).
+- RockNRoller has to be opened from RS Companion; with several panels, the first one's part is
+  followed.

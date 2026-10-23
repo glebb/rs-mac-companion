@@ -96,6 +96,20 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            section("RockNRoller") {
+                Text(RockNRoller.appURL?.path ?? "Not found (install it in Applications)").font(.caption)
+                    .foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle)
+                if RockNRoller.appURL != nil {
+                    Button(companion.rnrRunning ? "Restart RockNRoller" : "Open RockNRoller") { companion.openRockNRoller() }
+                }
+                if let message = companion.rnrMessage {
+                    Text(message).font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Nothing is installed into RockNRoller: opened from here, it loads the companion library. "
+                     + "Opened another way (Dock, Finder), it runs without it; restart it from here.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             section("Stream overlays (RockSniffer compatible)") {
                 Toggle("Serve overlays", isOn: binding(\.overlayEnabled))
                 if companion.settings.overlayEnabled {

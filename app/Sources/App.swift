@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Rocksmith Companion: a menu-bar app that receives tone changes from the in-game dylib and
-/// switches presets over MIDI. Started with a command (see Main.swift) it installs instead.
+/// Rocksmith Companion: a menu-bar app that receives tone changes from the in-game dylib (in
+/// Rocksmith, or in RockNRoller) and switches presets over MIDI. Started with a command (see Main.swift) it installs instead.
 struct RSCompanionApp: App {
     @ObservedObject private var companion = Companion.shared
 
@@ -69,7 +69,7 @@ struct CompanionView: View {
                         Text(attention.text).font(.callout).fixedSize(horizontal: false, vertical: true)
                         Spacer()
                         if let action = attention.action {
-                            Button(action) { companion.installInGame() }
+                            Button(action.label) { companion.perform(action) }
                         }
                     }
                     .padding(8)
@@ -87,7 +87,13 @@ struct CompanionView: View {
                         ForEach(companion.tones) { row in toneRow(row) }
                     }
                 } else {
-                    Text("Pick a song in Rocksmith.").foregroundStyle(.secondary)
+                    Text("Pick a song in \(companion.gameLabel).").foregroundStyle(.secondary)
+                    if RockNRoller.appURL != nil && !companion.rnrRunning {
+                        Button("Open RockNRoller") { companion.openRockNRoller() }
+                    }
+                    if let message = companion.rnrMessage {
+                        Text(message).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 Divider()
                 Text(companion.lastMIDI.map { "Last MIDI: \($0)" } ?? "No MIDI sent yet")
@@ -117,9 +123,10 @@ struct CompanionView: View {
         HStack(spacing: 6) {
             Circle().fill(connected ? Color.green : Color.secondary.opacity(0.5)).frame(width: 8, height: 8)
             if connected {
-                Text(companion.timerLocked ? "Rocksmith connected" : "Rocksmith connected · syncing at the first tone change")
+                Text(companion.timerLocked ? "\(companion.gameLabel) connected"
+                     : "\(companion.gameLabel) connected · syncing at the first tone change")
             } else {
-                Text("Waiting for Rocksmith")
+                Text("Waiting for \(companion.gameLabel)")
             }
         }
         .font(.caption)

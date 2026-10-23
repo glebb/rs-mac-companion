@@ -43,6 +43,7 @@ struct GameEvent: Decodable {
     let timer_locked: Bool?        // state
     let lead_ms: Int?              // state
     let pid: Int?                  // state
+    let game: String?              // state: the app the library runs in ("rocknroller"); none: Rocksmith
     // stats
     let live: Bool?                // false: the game freed the statistics (song left)
     let mode: String?
