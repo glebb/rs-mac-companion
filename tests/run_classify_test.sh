@@ -6,7 +6,8 @@
 # asked once per batch with a JSON schema, Bon Jovi and AC/DC get Heavy -> Crunch, Slayer gets no
 # Heavy -> Crunch, nothing is suggested for the Eagles, a second run asks nothing and suggests the
 # same, presets.json is not changed, and presets.py uses the suggestions (reason "AI") after your
-# own artists entry.
+# own artists entry. Then --redo --limit 1 asks about one song again and keeps every other answer,
+# including one RS Companion saved for a song that isn't in the index.
 set -e
 cd "$(dirname "$0")/.."
 INDEX="${RS_COMPANION_DATA:-$HOME/Library/Application Support/rs-mac-companion}/tones_index.jsonl"
@@ -59,5 +60,32 @@ check(lead[1].endswith(", artist AC/DC"), f"your AC/DC Lead entry wins: {lead}")
 plain = Presets(ai_path=None).get("", "", "riff_dist", [], artist="AC/DC")
 check(p.category(plain[0]) == "Heavy", f"without the suggestions AC/DC stays Heavy: {plain}")
 print(f"suggested styles: {s['song_styles']}")
+sys.exit(1 if fail else 0)
+PY
+
+# --redo --limit 1: one song asked again; the others, and an answer the app saved, stay.
+python3 - "$DATA/ai_classified.json" <<'PY'
+import json, sys
+a = json.load(open(sys.argv[1]))
+a[sorted(a)[0]]["reason"] = "old"
+a["appsong"] = {"style": "Soft", "distortion": "none", "confidence": "high", "reason": "from the app", "song_key": "AppSong"}
+json.dump(a, open(sys.argv[1], "w"))
+PY
+cp "$DATA/ai_classified.json" "$DATA/classified.before"
+BEFORE=$(wc -l < "$DATA/requests.jsonl")
+run --redo --limit 1
+python3 - "$DATA" "$BEFORE" <<'PY'
+import json, sys
+data, before = sys.argv[1], int(sys.argv[2])
+fail = []
+def check(ok, what):
+    print(("ok   " if ok else "FAIL ") + what)
+    ok or fail.append(what)
+old, new = json.load(open(f"{data}/classified.before")), json.load(open(f"{data}/ai_classified.json"))
+first = sorted(k for k in old if k != "appsong")[0]
+check(sum(1 for _ in open(f"{data}/requests.jsonl")) == before + 1, "--redo --limit 1: one request")
+check(new[first]["reason"] == "stub", f"--redo --limit 1: {first} asked again")
+check(set(new) == set(old) and all(new[k] == old[k] for k in old if k != first),
+      f"--redo --limit 1: the other {len(old) - 1} answers stay, the app's included")
 sys.exit(1 if fail else 0)
 PY

@@ -210,19 +210,38 @@ def suggest(songs, answers):
     return song_styles, artists, rows
 
 
+def read_json(path):
+    """The JSON object in a file, or {} if there is none."""
+    if not os.path.exists(path):
+        return {}
+    with open(path) as f:
+        return json.load(f)
+
+
+def write_json(path, data, **dump_args):
+    """Writes a JSON file in one step (a temporary file renamed into place), so RS Companion, which
+    reads these files while it runs, never sees half of one."""
+    tmp = f"{path}.tmp{os.getpid()}"
+    with open(tmp, "w") as f:
+        json.dump(data, f, ensure_ascii=False, **dump_args)
+        f.write("\n")
+    os.replace(tmp, path)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--model", default="gpt-6-luna")
     p.add_argument("--batch", type=int, default=100, help="songs per request")
     p.add_argument("--limit", type=int, help="ask about at most this many new songs (to try it out)")
-    p.add_argument("--redo", action="store_true", help="ask again about songs already answered")
+    p.add_argument("--redo", action="store_true",
+                   help="ask again about songs already answered (with --limit, only that many; other answers stay)")
     args = p.parse_args()
 
     paths.ensure_data_dir()
     presets = Presets(ai_path=None)  # the rules alone
     songs = songs_from_index(presets)
-    answers = {} if args.redo or not os.path.exists(CLASSIFIED) else json.load(open(CLASSIFIED))
-    todo = [s for k, s in sorted(songs.items()) if k not in answers][:args.limit]
+    answers = read_json(CLASSIFIED)
+    todo = [s for k, s in sorted(songs.items()) if args.redo or k not in answers][:args.limit]
 
     if todo:
         try:
@@ -236,20 +255,19 @@ def main():
         for i in range(0, len(todo), args.batch):
             batch = todo[i:i + args.batch]
             print(f"asking {args.model} about songs {i + 1}-{i + len(batch)} of {len(todo)}", flush=True)
-            for key, a in classify(client, args.model, batch, style_names).items():
-                answers[key] = dict(a, model=args.model)
-            with open(CLASSIFIED, "w") as f:  # after every batch, so an interrupted run keeps its answers
-                json.dump(answers, f, indent=1, ensure_ascii=False, sort_keys=True)
+            new = {key: dict(a, model=args.model) for key, a in classify(client, args.model, batch, style_names).items()}
+            # After every batch, so an interrupted run keeps its answers; merged into the file as it is
+            # now, so answers RS Companion saved meanwhile stay.
+            answers = {**read_json(CLASSIFIED), **new}
+            write_json(CLASSIFIED, answers, indent=1, sort_keys=True)
 
     song_styles, artists, rows = suggest(songs, answers)
-    with open(paths.AI_SUGGESTIONS, "w") as f:
-        json.dump({"_help": ["Suggestions from classify_songs.py where the model disagrees with the rules.",
-                             "song_styles and artists use presets.json's format and count after your own entries",
-                             "there (reason 'AI'). _songs says why, per song. Delete this file to turn them off."],
-                   "song_styles": song_styles, "artists": artists, "_songs": rows},
-                  f, indent=2, ensure_ascii=False)
-        f.write("\n")
-    print(f"{len(answers)} of {len(songs)} songs answered; {len(song_styles)} style and {len(artists)} artist "
+    write_json(paths.AI_SUGGESTIONS,
+               {"_help": ["Suggestions from classify_songs.py where the model disagrees with the rules.",
+                          "song_styles and artists use presets.json's format and count after your own entries",
+                          "there (reason 'AI'). _songs says why, per song. Delete this file to turn them off."],
+                "song_styles": song_styles, "artists": artists, "_songs": rows}, indent=2)
+    print(f"{sum(k in answers for k in songs)} of {len(songs)} songs answered; {len(song_styles)} style and {len(artists)} artist "
           f"suggestions in {paths.AI_SUGGESTIONS}")
 
 
