@@ -108,6 +108,9 @@ struct CompanionView: View {
                 if let problem = companion.problem {
                     Text(problem).font(.caption).foregroundStyle(.red)
                 }
+                if let error = companion.presetsError {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                }
             }
             .padding(14)
             .frame(width: 320)

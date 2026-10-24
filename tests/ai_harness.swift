@@ -39,5 +39,20 @@ struct Harness {
         } catch {
             print("bad key: \(error)")
         }
+        // A hand edit that breaks presets.json: the last mapping stays in use and nothing is saved over it.
+        let file = dir + "/presets.json", good = try! String(contentsOfFile: file, encoding: .utf8)
+        let broken = "{\"rules\": [ oops"
+        try! broken.write(toFile: file, atomically: true, encoding: .utf8)
+        p.reload()
+        print("broken error: \(p.error ?? "none")")
+        p.setRejected("bonjoviprayer", true)
+        p.set([("bonjoviprayer_rhythm", "B")], key: "riff_dist", to: .clean)
+        print("broken file kept: \((try? String(contentsOfFile: file, encoding: .utf8)) == broken)")
+        show("broken mapping", "bonjoviprayer_rhythm", "riff_dist")
+        try! good.write(toFile: file, atomically: true, encoding: .utf8)
+        p.reload()
+        print("fixed error: \(p.error ?? "none")")
+        p.set([("bonjoviprayer_rhythm", "B")], key: "riff_dist", to: .clean)
+        show("fixed override", "bonjoviprayer_rhythm", "riff_dist")
     }
 }

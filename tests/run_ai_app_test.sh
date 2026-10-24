@@ -6,7 +6,8 @@
 # line and a strict schema; the answer (Classic rock, crunch) is saved; the song's Heavy tone becomes
 # Crunch (", AI") and its style Classic rock, while another Bon Jovi song still goes by the
 # artist-wide suggestion; rejecting the song brings back the rules, using it again the answer;
-# a wrong key reports the API's message. A few seconds.
+# a wrong key reports the API's message; a broken presets.json is reported, kept in use as last read
+# and never saved over, until it is fixed. A few seconds.
 set -e
 cd "$(dirname "$0")/.."
 DATA=$(mktemp -d /tmp/rsc.XXXXXX)
@@ -54,6 +55,11 @@ check(out["style"] == "Classic rock" and out["style without ai"] == "Metal", "st
 check(out["rejected"] == "Heavy (name)" and out["style rejected"] == "Metal", "rejected: rules again")
 check(out["used again"] == "Crunch (name, AI)", "used again: answer again")
 check("Incorrect API key" in out.get("bad key", ""), f"wrong key: {out.get('bad key')}")
+check(out["broken error"].startswith("presets.json is not valid JSON"), f"broken presets.json reported: {out['broken error']}")
+check(out["broken file kept"] == "true", "broken presets.json not overwritten by a reject or an override")
+check(out["broken mapping"] == "Crunch (name, AI)", f"the last mapping read stays in use: {out['broken mapping']}")
+check(out["fixed error"] == "none" and out["fixed override"] == "Clean (song override)",
+      f"fixed: saving works again: {out['fixed override']}")
 check(json.load(open(f"{data}/presets.json")).get("ai_rejected") is None, "ai_rejected removed when empty")
 sys.exit(1 if fail else 0)
 PY

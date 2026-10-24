@@ -28,6 +28,9 @@ final class Presets {
     let path: String
     private var data: [String: Any] = [:]
     private var modified: Date?
+    /// Why presets.json can't be read (not JSON, e.g. a typo in a hand edit), or nil. While set,
+    /// the last mapping read stays in use and nothing is saved over the file.
+    private(set) var error: String?
     private let aiPath: String          // ai_suggestions.json: artist-wide, from classify_songs.py
     private var ai: [String: Any] = [:]
     private var aiModified: Date?
@@ -98,7 +101,13 @@ final class Presets {
     /// Re-reads presets.json and the AI files if they changed. Returns true if any did.
     @discardableResult
     func reload() -> Bool {
+        let before = modified
         let mine = Self.read(path, since: &modified).map { data = $0 } != nil
+        if mine {
+            error = nil
+        } else if modified != before, FileManager.default.fileExists(atPath: path) {
+            error = "presets.json is not valid JSON; fix it (your changes in the app aren't saved until then)"
+        }
         let suggestions = Self.readOptional(aiPath, since: &aiModified).map { ai = $0 } != nil
         let answered = Self.readOptional(answersPath, since: &answersModified).map { answers = $0 } != nil
         return mine || suggestions || answered
@@ -197,7 +206,7 @@ final class Presets {
 
     /// Rejects (or with false, takes back) the AI answers for a song.
     func setRejected(_ songKey: String, _ rejected: Bool) {
-        reload()
+        guard editable() else { return }
         var list = ((data["ai_rejected"] as? [String]) ?? []).filter { $0.lowercased() != songKey.lowercased() }
         if rejected { list.append(songKey.lowercased()) }
         data["ai_rejected"] = list.isEmpty ? nil : list.sorted()
@@ -206,7 +215,7 @@ final class Presets {
 
     /// Sets (or with nil removes) a song key's own style in "song_styles".
     func setStyle(_ songKey: String, _ style: String?) {
-        reload()
+        guard editable() else { return }
         var styles = (data["song_styles"] as? [String: Any]) ?? [:]
         for k in styles.keys where k.lowercased() == songKey.lowercased() { styles[k] = nil }
         styles[songKey.lowercased()] = style
@@ -317,7 +326,7 @@ final class Presets {
     /// Removing also drops a "tones" entry for the key (written by hand or by older versions),
     /// so the tone really goes back to automatic.
     func set(_ slots: [(arrangement: String, slot: String)], key: String, to category: Category?) {
-        reload()
+        guard editable() else { return }
         var songs = (data["songs"] as? [String: Any]) ?? [:]
         for (arrangement, slot) in slots {
             var song = (songs[arrangement] as? [String: Any]) ?? [:]
@@ -332,8 +341,16 @@ final class Presets {
         save()
     }
 
+    /// Re-reads presets.json before a change; false (change nothing) while it can't be read.
+    private func editable() -> Bool {
+        reload()
+        return error == nil
+    }
+
+    /// Writes the mapping, unless presets.json couldn't be read: then what's in memory may be
+    /// only part of it, and writing would replace the file's rules.
     private func save() {
-        guard let json = try? JSONSerialization.data(withJSONObject: data,
+        guard error == nil, let json = try? JSONSerialization.data(withJSONObject: data,
                                                      options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         else { return }
         try? json.write(to: URL(fileURLWithPath: path), options: .atomic)

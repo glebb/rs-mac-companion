@@ -46,6 +46,7 @@ final class Companion: ObservableObject {
     @Published private(set) var lastMIDI: String?
     @Published private(set) var madeTones: SongTones?   // the song tones described for this song
     @Published private(set) var problem: String?
+    @Published private(set) var presetsError: String?  // presets.json can't be read (Presets.error)
     @Published var paused = false
     @Published private(set) var settings: Settings
     @Published private(set) var installStatus: GameInstaller.Status = .notInstalled
@@ -98,6 +99,7 @@ final class Companion: ObservableObject {
         self.socket = socket
         record("started; listening on \(socket.path); mapping in \(presets.path)")
         if let done = presets.upgrade() { record(done) }
+        checkPresets(reload: false)
         overlay = Overlay(dataDir: dataDir) { [weak self] in self?.record($0) }
         overlay.configure(enabled: settings.overlayEnabled, port: settings.overlayPort)
         checkGame()
@@ -105,6 +107,7 @@ final class Companion: ObservableObject {
             MainActor.assumeIsolated {
                 self?.checkGame()
                 self?.reloadSettingsIfEdited()
+                self?.checkPresets()
             }
         }
     }
@@ -461,10 +464,7 @@ final class Companion: ObservableObject {
 
     private func handle(_ e: GameEvent) {
         reloadSettingsIfEdited()
-        if presets.reload() {
-            record("presets.json changed; mapping again")
-            remap(reason: "presets.json changed")
-        }
+        checkPresets()
         if overlay.running { overlay.handle(e) }
         switch e.event {
         case "song":
@@ -629,8 +629,21 @@ final class Companion: ObservableObject {
         }
     }
 
+    /// Shows (and logs, once) whether presets.json can be read; with reload, re-reads it first
+    /// if it changed.
+    private func checkPresets(reload: Bool = true) {
+        if reload, presets.reload() {
+            record("presets.json changed; mapping again")
+            remap(reason: "presets.json changed")
+        }
+        guard presets.error != presetsError else { return }
+        presetsError = presets.error
+        record(presetsError ?? "presets.json can be read again")
+    }
+
     /// Mapping changed: refresh the rows, and switch if the active tone's category changed.
     private func remap(reason: String) {
+        checkPresets(reload: false)  // an override or AI change reads the file before saving
         tones = rows()
         refreshAI()
         guard let a = active else { return }
