@@ -261,18 +261,25 @@ final class Companion: ObservableObject {
     }
 
     /// Saves new settings (shared with the dylib, which picks up lead_ms within a second) and
-    /// resends the current tone if the MIDI output changed.
+    /// applies them.
     func update(_ new: Settings) {
         guard new != settings else { return }
+        new.save(to: settingsPath)
+        settingsModified = Self.modified(settingsPath)
+        apply(new, "settings")
+    }
+
+    /// Uses new settings, from Settings or from rscompanion.json edited by hand: resends the current
+    /// tone if the MIDI output changed, and starts or stops what the settings turn on or off.
+    private func apply(_ new: Settings, _ origin: String) {
         // A new first program changes the message, so it is sent again.
         let renumbered = new.songToneFirstProgram != settings.songToneFirstProgram
         let midiChanged = new.channel != settings.channel || new.programs != settings.programs
             || new.songTones != settings.songTones || new.songTonePrograms != settings.songTonePrograms || renumbered
         settings = new
-        new.save(to: settingsPath)
-        settingsModified = Self.modified(settingsPath)
-        record("settings: channel \(new.channel), programs \(new.programs), lead \(new.leadMs) ms, overlays "
-            + (new.overlayEnabled ? "on (port \(new.overlayPort))" : "off") + ", song tones " + (new.songTones ? "on" : "off"))
+        record("\(origin): channel \(new.channel), programs \(new.programs), lead \(new.leadMs) ms, overlays "
+            + (new.overlayEnabled ? "on (port \(new.overlayPort))" : "off") + ", song tones " + (new.songTones ? "on" : "off")
+            + ", AI " + (new.aiClassify ? "on (\(new.aiModel))" : "off"))
         if midiChanged {
             makeSongTones(force: renumbered)
             resend()
@@ -448,18 +455,7 @@ final class Companion: ObservableObject {
         settingsModified = Self.modified(settingsPath)
         let new = Settings.load(from: settingsPath)
         guard new != settings else { return }
-        // A new first program changes the message, so it is sent again.
-        let renumbered = new.songToneFirstProgram != settings.songToneFirstProgram
-        let midiChanged = new.channel != settings.channel || new.programs != settings.programs
-            || new.songTones != settings.songTones || new.songTonePrograms != settings.songTonePrograms || renumbered
-        settings = new
-        record("rscompanion.json changed: channel \(new.channel), programs \(new.programs), lead \(new.leadMs) ms, "
-            + "song tones " + (new.songTones ? "on" : "off"))
-        if midiChanged {
-            makeSongTones(force: renumbered)
-            resend()
-        }
-        overlay.configure(enabled: new.overlayEnabled, port: new.overlayPort)
+        apply(new, "rscompanion.json changed")
     }
 
     private func handle(_ e: GameEvent) {
