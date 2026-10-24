@@ -1,8 +1,10 @@
 """Tone -> preset mapping shared by rstone.py and make_catalog.py.
 
-The rules live in presets.json in the data folder (seeded from presets.default.json). An AI model's
-suggestions (classify_songs.py) live in ai_suggestions.json next to it, in the same format: its
-"artists" remaps count where presets.json's "artists" has none for that category, with reason "AI"."""
+The rules live in presets.json in the data folder (seeded from presets.default.json). Where
+presets.json's "artists" has nothing for a tone's category, an AI model may change it (reason "AI"):
+the song's own answer in ai_classified.json ("crunch" turns Heavy into Crunch, "heavy" Crunch into
+Heavy), or for a song without one, the artist-wide "artists" in ai_suggestions.json. Songs listed in
+presets.json's "ai_rejected" get neither. As Presets.swift."""
 import json
 import os
 import re
@@ -22,11 +24,24 @@ def amp_name(amp):
 
 
 class Presets:
-    def __init__(self, path=paths.PRESETS, ai_path=paths.AI_SUGGESTIONS):
-        """ai_path None leaves out the AI suggestions: what the rules alone pick."""
+    def __init__(self, path=paths.PRESETS, ai_path=paths.AI_SUGGESTIONS, answers_path=paths.AI_CLASSIFIED):
+        """ai_path None leaves out the AI (suggestions and answers): what the rules alone pick."""
         self.path, self.mtime, self.data = path, 0, {}
         self.ai_path, self.ai_mtime, self.ai = ai_path, 0, {}
+        self.answers_path = answers_path if ai_path else None
+        self.answers_mtime, self.answers = 0, {}
         self.reload()
+
+    @staticmethod
+    def _read(path, mtime, current):
+        """(data, mtime) of an optional JSON file: as before if unchanged, empty if gone."""
+        try:
+            m = os.path.getmtime(path)
+            return (json.load(open(path)), m) if m != mtime else (current, mtime)
+        except OSError:
+            return {}, 0
+        except ValueError:
+            return current, mtime
 
     def reload(self):
         """Re-read presets.json and the AI suggestions if they changed, so mappings can be tuned
@@ -38,14 +53,17 @@ class Presets:
         except (OSError, ValueError):
             pass
         if self.ai_path:
-            try:
-                m = os.path.getmtime(self.ai_path)
-                if m != self.ai_mtime:
-                    self.ai, self.ai_mtime = json.load(open(self.ai_path)), m
-            except OSError:
-                self.ai, self.ai_mtime = {}, 0
-            except ValueError:
-                pass
+            self.ai, self.ai_mtime = self._read(self.ai_path, self.ai_mtime, self.ai)
+        if self.answers_path:
+            self.answers, self.answers_mtime = self._read(self.answers_path, self.answers_mtime, self.answers)
+
+    def answer(self, song_key):
+        """The AI model's answer for a song key ({"style", "distortion", ...}), unless a guess."""
+        a = self.answers.get(song_key.lower())
+        return a if isinstance(a, dict) and a.get("confidence") != "low" else None
+
+    def rejected(self, song_key):
+        return song_key.lower() in {k.lower() for k in self.data.get("ai_rejected", [])}
 
     def category(self, preset):
         """The category (Clean, Crunch, Heavy, Lead) a preset name means."""
@@ -70,15 +88,31 @@ class Presets:
         if key.lower() in tones:
             return tones[key.lower()], "tone override"
         preset, why = self.rule(key, descriptors, amp, gain, drive)
-        for source, label in ((d, f"artist {(artist or '').strip()}"), (self.ai, "AI")):
-            artists = {k.strip().lower(): v for k, v in source.get("artists", {}).items()}
-            remap = artists.get((artist or "").strip().lower())
-            if isinstance(remap, dict):
-                remap = {k.lower(): v for k, v in remap.items()}
-                new = remap.get(preset.lower()) or remap.get(self.category(preset).lower())
-                if new:
-                    return new, f"{why}, {label}"
-        return preset, why
+        new = self._remap(d, artist, preset)
+        if new:
+            return new, f"{why}, artist {(artist or '').strip()}"
+        song_key = arrangement.rsplit("_", 1)[0]
+        if not self.ai_path or self.rejected(song_key):
+            return preset, why
+        answer = self.answer(song_key)
+        if answer:
+            c = self.category(preset)
+            if answer.get("distortion") == "crunch" and c == "Heavy":
+                return "Crunch", f"{why}, AI"
+            if answer.get("distortion") == "heavy" and c == "Crunch":
+                return "Heavy", f"{why}, AI"
+            return preset, why
+        new = self._remap(self.ai, artist, preset)
+        return (new, f"{why}, AI") if new else (preset, why)
+
+    def _remap(self, source, artist, preset):
+        """What an "artists" section maps the preset (or its category) to for this artist, if anything."""
+        artists = {k.strip().lower(): v for k, v in source.get("artists", {}).items()}
+        remap = artists.get((artist or "").strip().lower())
+        if isinstance(remap, dict):
+            remap = {k.lower(): v for k, v in remap.items()}
+            return remap.get(preset.lower()) or remap.get(self.category(preset).lower())
+        return None
 
     def rule(self, key, descriptors, amp, gain, drive=None):
         """The rules and the default: (preset, reason)."""

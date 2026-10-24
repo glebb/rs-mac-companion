@@ -15,6 +15,7 @@ enum Rig {
     struct Tone {
         let key: String
         let gear: [String: Gear]        // by slot: "Amp", "Cabinet", "PrePedal1", "Rack2", ...
+        var descriptors: [String] = []  // its tags: "CLEAN", "DISTORTION", ... (as rsfile.c reads them)
     }
 
     struct Arrangement {
@@ -26,6 +27,20 @@ enum Rig {
         let length: Double?
         let lowString: Double           // the low string's tuning in semitones, with the cent offset
         let tempo: Double?
+        var strings: [Int] = []         // each string's tuning in semitones, low string first
+    }
+
+    static let notes = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
+
+    /// "E standard", "Drop D", "Eb standard", ... or "custom" (nil if unknown), as rig.py's tuning_name.
+    static func tuningName(_ a: Arrangement) -> String? {
+        let strings = Array(a.strings.prefix(a.path == "Bass" ? 4 : 6))
+        guard let low = strings.first else { return nil }
+        let rest = Set(strings.dropFirst())
+        guard rest.count == 1, let r = rest.first else { return "custom" }
+        if low == r { return "\(notes[((4 + r) % 12 + 12) % 12]) standard" }
+        if low == r - 2 { return "Drop \(notes[((2 + r) % 12 + 12) % 12])" }
+        return "custom"
     }
 
     // MARK: Drive
@@ -235,7 +250,8 @@ enum Rig {
                 slots: ["Tone_Base", "Tone_A", "Tone_B", "Tone_C", "Tone_D"].map { a[$0] as? String ?? "" },
                 tones: ((a["Tones"] as? [[String: Any]]) ?? []).map(tone),
                 changes: changes, length: (a["SongLength"] as? NSNumber)?.doubleValue, lowString: low,
-                tempo: (a["SongAverageTempo"] as? NSNumber)?.doubleValue))
+                tempo: (a["SongAverageTempo"] as? NSNumber)?.doubleValue,
+                strings: (0..<6).compactMap { (tuning?["string\($0)"] as? NSNumber)?.intValue }))
         }
         return out
     }
@@ -251,6 +267,11 @@ enum Rig {
             }
             gear[slot] = Gear(key: key, knobs: knobs)
         }
-        return Tone(key: t["Key"] as? String ?? "", gear: gear)
+        // "$[35716]CLEAN" -> "CLEAN"
+        let descriptors = ((t["ToneDescriptors"] as? [String]) ?? []).map { d -> String in
+            guard d.hasPrefix("$["), let end = d.firstIndex(of: "]") else { return d }
+            return String(d[d.index(after: end)...])
+        }
+        return Tone(key: t["Key"] as? String ?? "", gear: gear, descriptors: descriptors)
     }
 }

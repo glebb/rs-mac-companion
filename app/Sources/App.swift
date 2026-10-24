@@ -86,6 +86,7 @@ struct CompanionView: View {
                     VStack(spacing: 4) {
                         ForEach(companion.tones) { row in toneRow(row) }
                     }
+                    if let verdict = companion.ai { aiPanel(verdict) }
                 } else {
                     Text("Pick a song in \(companion.gameLabel).").foregroundStyle(.secondary)
                     if RockNRoller.appURL != nil && !companion.rnrRunning {
@@ -111,6 +112,59 @@ struct CompanionView: View {
             .padding(14)
             .frame(width: 320)
         }
+    }
+
+    /// What the AI model says about this song. Its answer is in use already; while it changes
+    /// something, "Keep as mine" makes the changes your own overrides and "Don't use" turns it off
+    /// for the song.
+    @ViewBuilder
+    private func aiPanel(_ verdict: AIVerdict) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            switch verdict.state {
+            case .asking:
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini)
+                    Text("Asking the AI about this song…")
+                }
+            case .answered(let a):
+                HStack {
+                    Text("AI: \(a.style), \(a.distortion == "none" ? "no distortion" : a.distortion)"
+                         + (a.confidence == "medium" ? " (from the artist's sound)" : ""))
+                        .font(.caption.weight(.semibold))
+                    Spacer()
+                    if !verdict.changes.isEmpty {
+                        Text("In use").font(.caption2.weight(.semibold)).foregroundStyle(.green)
+                    }
+                }
+                if !a.reason.isEmpty { Text(a.reason) }
+                if verdict.changes.isEmpty {
+                    Text("Nothing to change here: the rules and your overrides agree.")
+                } else {
+                    ForEach(verdict.changes, id: \.self) { Text("• " + $0) }
+                    HStack {
+                        Button("Keep as mine") { companion.acceptAI() }
+                            .help("Make these changes your own overrides for this song")
+                        Button("Don't use") { companion.rejectAI() }
+                            .help("Go back to the rules for this song")
+                    }
+                }
+            case .guess:
+                Text("The AI doesn't know this song well enough; the rules decide.")
+            case .failed(let why):
+                Text("Couldn't ask the AI: \(why)").foregroundStyle(.red)
+            case .rejected:
+                HStack {
+                    Text("AI not used for this song.")
+                    Spacer()
+                    Button("Use again") { companion.rejectAI(false) }
+                }
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var arrangementLabel: String {

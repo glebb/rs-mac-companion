@@ -34,8 +34,9 @@ Changes, as described in the [README](../README.md#use).
   comes right after the message, so a receiver should either handle it once it's ready or
   play a fallback until then.
 - **Again for the same song** when the mapping in `presets.json` changes (a tone's category
-  can change), when the first program changes, or when RS Companion starts while a song is
-  loaded.
+  can change), when an AI answer for the song arrives (its tones' categories and its style can
+  change, a few seconds after the first message), when the first program changes, or when RS
+  Companion starts while a song is loaded.
 
 ## Version 2
 
@@ -66,7 +67,7 @@ For example (the effect values are illustrative):
 | `heaviness` | 0–1, may be missing | how heavy the song is: the drive of the tone its rhythm part (else combo, else lead) plays longest, plus 0.1 when the low string is tuned to C or lower. The same score as `songs.csv` |
 | `tempo` | beats per minute, may be missing | the arrangement's average tempo, e.g. for a delay with no time of its own |
 | `low_string` | semitones, may be missing | the low string's tuning relative to E standard, with its cent offset (−2 = D standard or drop D) |
-| `style` | text | a label for the song, picked from its heaviness (see [Styles](#styles)) |
+| `style` | text | a label for the song: set for it in `presets.json`, else the AI's answer, else picked from its heaviness (see [Styles](#styles)) |
 | `styles` | list of text | every label a song can get, so a receiver can prepare for each in advance |
 
 ### The tones
@@ -114,10 +115,12 @@ Changes doesn't know about song tones.
 "song_styles": {"AC/DC": "Classic rock", "skid18an": "Metal"}
 ```
 
-The label is the last entry in `styles` whose `from` the song's heaviness reaches. A song key
-or an artist listed in `song_styles` gets the label named there (the song key is checked
-first), then one listed in the `song_styles` of `ai_suggestions.json`, the AI suggestions
-from `classify_songs.py`. Without these sections, the labels and thresholds are the ones shown above. The
+A song key or an artist listed in `song_styles` gets the label named there (the song key is
+checked first). Otherwise, with [AI song classification](../README.md#ai-song-classification-experimental),
+the style in the song's AI answer (`ai_classified.json`), else one listed in the `song_styles` of
+`ai_suggestions.json` (from `classify_songs.py`). Otherwise the label is the last entry in
+`styles` whose `from` the song's heaviness reaches. Without these sections, the labels and
+thresholds are the ones shown above. The
 labels mean nothing to RS Companion itself: a receiver decides what to do with them. Stagehand
 uses the label as the name of a set of four tones (a bank).
 

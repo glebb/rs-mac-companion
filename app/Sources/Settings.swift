@@ -6,7 +6,9 @@ import Foundation
 ///    "game_dir": "/path/to/Rocksmith2014",     (only when not where Steam has it)
 ///    "overlay_enabled": false, "overlay_port": 9938,
 ///    "song_tones": false,                      (a SysEx describing each song's tones, SongTones.swift)
-///    "song_tone_programs": true, "song_tone_first_program": 8}   (and Program Changes that play them)
+///    "song_tone_programs": true, "song_tone_first_program": 8,  (and Program Changes that play them)
+///    "ai_classify": false, "ai_model": "gpt-6-luna"}            (ask an AI model about new songs, AIClassifier.swift;
+///                                                                the API key is in the keychain)
 struct Settings: Equatable {
     var gameDir: String?            // the Rocksmith2014 folder, if not where Steam has it
     var leadMs = 100
@@ -17,6 +19,8 @@ struct Settings: Equatable {
     var songTones = false           // a SysEx describes each song's tones when it loads (SongTones.swift)
     var songTonePrograms = true     // with it, song tone i plays on Program Change songToneFirstProgram + i
     var songToneFirstProgram = SongTones.defaultFirstProgram
+    var aiClassify = false          // ask an AI model about each new song (AIClassifier.swift)
+    var aiModel = AIClassifier.defaultModel
 
     /// Common layouts: the four categories on Program Change 0-3 or 4-7 (e.g. two guitar
     /// channels of one device), or a number per category.
@@ -57,6 +61,8 @@ struct Settings: Equatable {
         if let v = json["song_tones"] as? Bool { s.songTones = v }
         if let v = json["song_tone_programs"] as? Bool { s.songTonePrograms = v }
         if let v = json["song_tone_first_program"] as? Int { s.songToneFirstProgram = min(max(v, 0), 128 - SongTones.maxTones) }
+        if let v = json["ai_classify"] as? Bool { s.aiClassify = v }
+        if let v = json["ai_model"] as? String, !v.isEmpty { s.aiModel = v }
         if let p = json["programs"] as? [String: Any] {
             for c in Category.allCases { if let v = p[c.name] as? Int { s.programs[c.rawValue] = min(max(v, 0), 127) } }
         }
@@ -74,6 +80,8 @@ struct Settings: Equatable {
         json["song_tones"] = songTones
         json["song_tone_programs"] = songTonePrograms
         json["song_tone_first_program"] = songToneFirstProgram
+        json["ai_classify"] = aiClassify
+        json["ai_model"] = aiModel
         json["programs"] = Dictionary(uniqueKeysWithValues: Category.allCases.map { ($0.name, programs[$0.rawValue]) })
         if let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: URL(fileURLWithPath: path), options: .atomic)

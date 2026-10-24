@@ -7,6 +7,8 @@ struct SettingsView: View {
     let done: () -> Void
     @State private var loginItem = SMAppService.mainApp.status == .enabled
     @State private var loginProblem: String?
+    @State private var keyText = ""
+    @State private var hasKey = APIKey.get() != nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -56,6 +58,38 @@ struct SettingsView: View {
                 if companion.settings.songTones, let made = companion.madeTones {
                     Text(made.summary).font(.caption).lineLimit(3)
                 }
+            }
+
+            section("AI (experimental)") {
+                Toggle("Ask an AI model about new songs", isOn: binding(\.aiClassify))
+                Text("The first time a song loads, its artist, title and what the rules measured go to OpenAI, which "
+                     + "says the song's style and whether its distortion should be Crunch or Heavy. The window shows "
+                     + "the answer, to accept or reject. Your own overrides always win.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if hasKey {
+                    HStack {
+                        Text("OpenAI API key saved in the keychain").font(.caption)
+                        Spacer()
+                        Button("Remove") {
+                            APIKey.set(nil)
+                            hasKey = false
+                        }
+                    }
+                } else {
+                    HStack {
+                        SecureField("OpenAI API key", text: $keyText)
+                        Button("Save") {
+                            APIKey.set(keyText)
+                            keyText = ""
+                            hasKey = APIKey.get() != nil
+                            companion.apiKeyChanged()
+                        }
+                        .disabled(keyText.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                }
+                TextField("Model", text: binding(\.aiModel))
+                    .font(.caption)
+                    .help("The OpenAI model to ask (\(AIClassifier.defaultModel) by default)")
             }
 
             section("Timing") {

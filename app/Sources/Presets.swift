@@ -7,9 +7,12 @@ import Foundation
 ///      gain knob ("gain": at least) and how distorted its rig is ("drive": clean, crunch or heavy)
 ///   4. default
 /// The result of 3 or 4 may then be changed by the song's artist ("artists": {"Bon Jovi":
-/// {"Heavy": "Crunch"}}), or where that has nothing for the category, by an AI model's suggestions
-/// in ai_suggestions.json next to it (classify_songs.py; same format, reason ", AI"; its
-/// "song_styles" likewise come after presets.json's). The resulting preset name is read as a category: a category name
+/// {"Heavy": "Crunch"}}), or where that has nothing for the category, by an AI model (reason
+/// ", AI"): the song's own answer in ai_classified.json next to it (written by the app and by
+/// classify_songs.py; "crunch" turns Heavy into Crunch, "heavy" Crunch into Heavy), or for a song
+/// without one, the artist-wide suggestions in ai_suggestions.json (classify_songs.py; same format
+/// as presets.json). Songs in "ai_rejected" get neither. Styles go the same way: "song_styles",
+/// then the answer's style, then the suggestions' "song_styles". The resulting preset name is read as a category: a category name
 /// itself, or the "categories" section (e.g. "Distortion": "Heavy"). Overrides made in the app write
 /// category names into "songs" (for every part of the song that uses the tone). The file is
 /// re-read when it changes.
@@ -25,9 +28,20 @@ final class Presets {
     let path: String
     private var data: [String: Any] = [:]
     private var modified: Date?
-    private let aiPath: String
+    private let aiPath: String          // ai_suggestions.json: artist-wide, from classify_songs.py
     private var ai: [String: Any] = [:]
     private var aiModified: Date?
+    let answersPath: String             // ai_classified.json: one answer per song key
+    private var answers: [String: Any] = [:]
+    private var answersModified: Date?
+
+    /// An AI model's answer for one song (ai_classified.json).
+    struct Answer: Equatable {
+        let style: String
+        let distortion: String          // "crunch", "heavy" or "none"
+        let confidence: String          // "high", "medium" or "low"
+        let reason: String
+    }
 
     /// Preset names used before categories existed, for files without a "categories" section.
     private static let builtinCategories: [String: Category] = [
@@ -36,7 +50,9 @@ final class Presets {
 
     init(path: String, defaults: URL?) {
         self.path = path
-        aiPath = (path as NSString).deletingLastPathComponent + "/ai_suggestions.json"
+        let dir = (path as NSString).deletingLastPathComponent
+        aiPath = dir + "/ai_suggestions.json"
+        answersPath = dir + "/ai_classified.json"
         if !FileManager.default.fileExists(atPath: path), let defaults {
             try? FileManager.default.copyItem(at: defaults, to: URL(fileURLWithPath: path))
         }
@@ -79,20 +95,23 @@ final class Presets {
             + (backup as NSString).lastPathComponent + ")"
     }
 
-    /// Re-reads presets.json and the AI suggestions if they changed. Returns true if either did.
+    /// Re-reads presets.json and the AI files if they changed. Returns true if any did.
     @discardableResult
     func reload() -> Bool {
         let mine = Self.read(path, since: &modified).map { data = $0 } != nil
-        var ai: [String: Any]? = nil
-        let date = (try? FileManager.default.attributesOfItem(atPath: aiPath))?[.modificationDate] as? Date
-        if date == nil, aiModified != nil {  // removed: no suggestions
-            aiModified = nil
-            ai = [:]
-        } else {
-            ai = Self.read(aiPath, since: &aiModified)
+        let suggestions = Self.readOptional(aiPath, since: &aiModified).map { ai = $0 } != nil
+        let answered = Self.readOptional(answersPath, since: &answersModified).map { answers = $0 } != nil
+        return mine || suggestions || answered
+    }
+
+    /// Like read, but a file that went away reads as empty (once).
+    private static func readOptional(_ path: String, since modified: inout Date?) -> [String: Any]? {
+        if !FileManager.default.fileExists(atPath: path) {
+            guard modified != nil else { return nil }
+            modified = nil
+            return [:]
         }
-        if let ai { self.ai = ai }
-        return mine || ai != nil
+        return read(path, since: &modified)
     }
 
     /// The JSON object in a file if it changed since `modified` (then updated), else nil.
@@ -114,9 +133,10 @@ final class Presets {
         var drive: Double? = nil
     }
 
-    /// With overrides false, only the rules, the default and the artist section count: what the
-    /// tone would be without changes made to this song.
-    func match(arrangement: String, slot: String, tone: Tone, artist: String, overrides: Bool = true) -> Match {
+    /// With overrides false, only the rules, the default, the artist section and the AI count:
+    /// what the tone would be without changes made to this song. With ai false, the AI doesn't.
+    func match(arrangement: String, slot: String, tone: Tone, artist: String, overrides: Bool = true,
+               ai useAI: Bool = true) -> Match {
         func result(_ preset: String, _ reason: String) -> Match {
             Match(preset: preset, category: category(of: preset), reason: reason)
         }
@@ -130,18 +150,68 @@ final class Presets {
         }
         let (preset, reason) = rule(tone)
         let name = artist.trimmingCharacters(in: .whitespaces)
-        for (source, label) in [(data, "artist \(name)"), (ai, "AI")] {
-            guard let remap = (source["artists"] as? [String: Any])?
-                .first(where: { $0.key.trimmingCharacters(in: .whitespaces).lowercased() == name.lowercased() })?
-                .value as? [String: Any] else { continue }
-            let wanted = [preset.lowercased(), category(of: preset).name.lowercased()]
-            for w in wanted {
-                if let p = remap.first(where: { $0.key.lowercased() == w })?.value as? String {
-                    return result(p, "\(reason), \(label)")
-                }
-            }
+        if let p = remap(data, artist: name, preset: preset) { return result(p, "\(reason), artist \(name)") }
+        let songKey = Self.songKey(arrangement)
+        guard useAI, !isRejected(songKey) else { return result(preset, reason) }
+        if let answer = answer(songKey) {
+            let c = category(of: preset)
+            if answer.distortion == "crunch", c == .heavy { return result(Category.crunch.name, "\(reason), AI") }
+            if answer.distortion == "heavy", c == .crunch { return result(Category.heavy.name, "\(reason), AI") }
+            return result(preset, reason)
         }
+        if let p = remap(ai, artist: name, preset: preset) { return result(p, "\(reason), AI") }
         return result(preset, reason)
+    }
+
+    /// What an "artists" section maps the preset (or its category) to for this artist, if anything.
+    private func remap(_ source: [String: Any], artist: String, preset: String) -> String? {
+        guard let remap = (source["artists"] as? [String: Any])?
+            .first(where: { $0.key.trimmingCharacters(in: .whitespaces).lowercased() == artist.lowercased() })?
+            .value as? [String: Any] else { return nil }
+        for w in [preset.lowercased(), category(of: preset).name.lowercased()] {
+            if let p = remap.first(where: { $0.key.lowercased() == w })?.value as? String { return p }
+        }
+        return nil
+    }
+
+    /// "selftrap" for "selftrap_rhythm": the song key the AI files use.
+    static func songKey(_ arrangement: String) -> String {
+        (arrangement.lastIndex(of: "_").map { String(arrangement[..<$0]) } ?? arrangement).lowercased()
+    }
+
+    /// The AI model's answer for a song key, unless it was a guess (low confidence).
+    func answer(_ songKey: String) -> Answer? {
+        guard let a = answers[songKey.lowercased()] as? [String: Any],
+              let style = a["style"] as? String, let distortion = a["distortion"] as? String,
+              let confidence = a["confidence"] as? String, confidence != "low" else { return nil }
+        return Answer(style: style, distortion: distortion, confidence: confidence, reason: a["reason"] as? String ?? "")
+    }
+
+    /// Whether the model was asked about this song key (a guess counts: it isn't asked again).
+    func answered(_ songKey: String) -> Bool { answers[songKey.lowercased()] != nil }
+
+    /// Songs whose AI answers you rejected ("ai_rejected" in presets.json).
+    func isRejected(_ songKey: String) -> Bool {
+        ((data["ai_rejected"] as? [String]) ?? []).contains { $0.lowercased() == songKey.lowercased() }
+    }
+
+    /// Rejects (or with false, takes back) the AI answers for a song.
+    func setRejected(_ songKey: String, _ rejected: Bool) {
+        reload()
+        var list = ((data["ai_rejected"] as? [String]) ?? []).filter { $0.lowercased() != songKey.lowercased() }
+        if rejected { list.append(songKey.lowercased()) }
+        data["ai_rejected"] = list.isEmpty ? nil : list.sorted()
+        save()
+    }
+
+    /// Sets (or with nil removes) a song key's own style in "song_styles".
+    func setStyle(_ songKey: String, _ style: String?) {
+        reload()
+        var styles = (data["song_styles"] as? [String: Any]) ?? [:]
+        for k in styles.keys where k.lowercased() == songKey.lowercased() { styles[k] = nil }
+        styles[songKey.lowercased()] = style
+        data["song_styles"] = styles
+        save()
     }
 
     /// "Amp_HG500" and "HG500" both -> "hg500".
@@ -191,8 +261,12 @@ final class Presets {
     /// or an artist (song key first), then the AI suggestions' "song_styles" the same way;
     /// otherwise the last of "styles" whose "from" the song's heaviness reaches. Without a "styles" section: Soft, Classic rock (0.3), Metal (0.75).
     /// (Read too: "banks"/"song_banks" and "rigs"/"song_rigs", what styles were called before.)
-    func style(heaviness: Double?, artist: String, songKey: String) -> String {
-        for source in [songStyles, ai["song_styles"] as? [String: Any] ?? [:]] {
+    func style(heaviness: Double?, artist: String, songKey: String, ai useAI: Bool = true) -> String {
+        let useAI = useAI && !isRejected(songKey)
+        var sources = [songStyles]
+        if useAI, let answer = answer(songKey) { sources.append([songKey: answer.style]) }
+        if useAI { sources.append(ai["song_styles"] as? [String: Any] ?? [:]) }
+        for source in sources {
             let named = source.reduce(into: [String: String]()) {
                 if let v = $1.value as? String { $0[$1.key.trimmingCharacters(in: .whitespaces).lowercased()] = v }
             }
@@ -203,6 +277,9 @@ final class Presets {
         let h = heaviness ?? 0
         return styles.last { h >= $0.from }?.name ?? styles[0].name
     }
+
+    /// The names in "styles" (the AI model picks one of these).
+    var styleList: [String] { styles.map(\.name) }
 
     /// Every style a song may get: "styles", then the ones only "song_styles" (or the AI's) names.
     var styleNames: [String] {

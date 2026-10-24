@@ -92,13 +92,14 @@ catch up, and tells it whether the game (with the dylib) is running.
 | File | Does |
 |---|---|
 | `EventSocket.swift` | binds `events.sock`, decodes events on a background queue, delivers them on the main thread |
-| `Presets.swift` | the mapping in `presets.json`, evaluated exactly like `presets.py` (checked on all 17,542 tone slots of a library) |
+| `Presets.swift` | the mapping in `presets.json` and the AI answers, evaluated exactly like `presets.py` (checked on all 17,542 tone slots of a library) |
 | `Category.swift` | Clean, Crunch, Heavy, Lead |
-| `Settings.swift` | `rscompanion.json`: MIDI channel, Program Change per category, lead time, stream overlays, song tone messages and their Program Changes |
+| `Settings.swift` | `rscompanion.json`: MIDI channel, Program Change per category, lead time, stream overlays, song tone messages and their Program Changes, AI classification and its model |
+| `AIClassifier.swift` | AI song classification: asks OpenAI's Responses API about a song (the prompt and answer schema of `classify_songs.py`), saves the answer in `ai_classified.json`; the API key in the keychain |
 | `MIDIOut.swift` | a CoreMIDI virtual source "Rocksmith Companion"; Program Change and SysEx as MIDI 1.0 UMP, held for the first second so listeners can connect |
-| `Rig.swift` | a song's gear read from its archive: each tone's drive and effects, the song's heaviness; the same rules as `rig.py` (checked identical on all 2,768 songs of a library) |
+| `Rig.swift` | a song's gear read from its archive: each tone's tags, drive and effects, the song's tuning and heaviness; the same rules as `rig.py` (checked identical on all 2,768 songs of a library) |
 | `SongTones.swift` | song tone messages: the SysEx (manufacturer 0x7D, then JSON, version 2) sent when a song loads, describing each tone in Rocksmith's terms for any tool, and a Program Change per tone (8–12 by default). The format: [song-tone-messages.md](song-tone-messages.md) |
-| `Companion.swift` | state, mapping, overrides, when to send, install status and warnings |
+| `Companion.swift` | state, mapping, overrides, when to send, AI requests and their answers, install status and warnings |
 | `GameInstaller.swift`, `MachOPatcher.swift` | install, update and uninstall in the game (below) |
 | `Main.swift` | starts the app, or runs an install command (`--game-status`, `--install-game`, `--uninstall-game`) |
 | `App.swift`, `SettingsView.swift` | the menu-bar window (SwiftUI `MenuBarExtra`) |
@@ -113,9 +114,19 @@ catch up, and tells it whether the game (with the dylib) is running.
 4. `default`
 
 then `artists` may change the result of 3 or 4 for the song's artist (`{"Bon Jovi": {"Heavy":
-"Crunch"}}`), or where that has nothing for the category, the AI suggestions in
-`ai_suggestions.json` (`classify_songs.py`; reason `, AI`, shown as "AI"). The window counts both
-as automatic: the badge shows no pencil for them, and reset doesn't remove them.
+"Crunch"}}`), or where that has nothing for the category, an AI model (reason `, AI`, shown as
+"AI"): the song's own answer in `ai_classified.json` ("crunch" turns Heavy into Crunch, "heavy"
+Crunch into Heavy), or for a song without one, the artist-wide suggestions in
+`ai_suggestions.json` (`classify_songs.py`); songs in `ai_rejected` get neither. The window counts
+these as automatic: the badge shows no pencil for them, and reset doesn't remove them.
+
+With the AI setting on and a key in the keychain, the app asks the model about a song the first
+time it loads (`AIClassifier.swift`, the same prompt as `classify_songs.py`), in the background;
+when the answer is saved the song is mapped again (and the song tone message sent again), so
+the answer is in use without a click. A failed request is shown in the window and tried again
+when a key is saved or the app restarts. Nothing goes online with the setting off.
+**Keep as mine** writes what it changes as `songs` overrides and a `song_styles` entry; **Don't
+use** adds the song to `ai_rejected`.
 
 (Rule syntax, the default rules, their limits and how to tune them: see
 [How tones are mapped](../README.md#how-tones-are-mapped).)
@@ -140,7 +151,10 @@ active tone's mapping resends. Pause stops sending; Resend sends the current cat
 ```
 
 `programs` presets in the app: 0–3 (default), 4–7, or custom. `overlay_enabled` (default false)
-and `overlay_port` (9938) switch the stream overlays.
+and `overlay_port` (9938) switch the stream overlays; `song_tones` (false), `song_tone_programs`
+(true) and `song_tone_first_program` (8) the song tone messages; `ai_classify` (false) and
+`ai_model` (`gpt-6-luna`) the AI classification, whose API key is kept in the login keychain, not
+here (the dylib reads this file too).
 The dylib re-reads `lead_ms` and `overlay_enabled` within a second (no game restart).
 
 **Stream overlays** (RockSniffer compatible). [RockSniffer](https://github.com/kokolihapihvi/RockSniffer)
@@ -242,6 +256,8 @@ of the game executable. `tools/add_load_dylib.py` does step 3 by hand for any ex
 | `tests/run_app_test.sh` | stand-in → dylib → app → MIDI (`tools/midi_monitor.swift`), with a song override, a live `presets.json` edit, custom MIDI settings and a restart catch-up |
 | `tests/run_song_tones_test.sh` | stand-in → dylib → app with song tone messages on: the SysEx message at song load (style, tones in order of first use with their categories and effects) and Program Change 8 and 9 |
 | `tests/run_installer_test.sh` | the installer on a copy of the game executable: fresh install, repeat, prototype migration, update, uninstall back to the original bytes, missing game |
+| `tests/run_ai_app_test.sh` | `AIClassifier.swift` and `Presets.swift` against `tests/stub_responses.py` (a stand-in for OpenAI): the request (key, model, the script's prompt, strict schema), the saved answer, the song's remap and style, rejecting and using again, a wrong key |
+| `tests/run_classify_test.sh` | `classify_songs.py` with `tests/stub_openai` for the `openai` package, on songs from your index: batches, suggestions, low-confidence answers left out, `presets.py` using them after your own entries |
 
 The dylib and app tests read *Self Trap*, which comes with the game, from the game folder's
 `songs.psarc`; the rstone test uses its index line (`tests/fixture_index.jsonl`). All use a

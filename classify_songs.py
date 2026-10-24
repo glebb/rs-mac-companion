@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Experimental: ask an OpenAI model what each song in the index is (its style: Soft, Classic rock,
-Metal, ...) and whether its distorted tones should be Crunch or Heavy, and write the answers where
-they differ from the rules to ai_suggestions.json. RS Companion and presets.py read that file as a
-layer between the rules and your own entries in presets.json, which stays as it is.
+Metal, ...) and whether its distorted tones should be Crunch or Heavy. RS Companion (which can ask
+about each new song itself, AIClassifier.swift) and presets.py use the answers between the rules
+and your own entries in presets.json, which stays as it is.
 
 The model gets what the rules already know (tuning, tempo, heaviness, the style and categories the
 rules pick, the amps) plus the artist and title, and corrects the rules from what the records
@@ -10,11 +10,13 @@ sound like: Rocksmith tones often have more gain than the song, so a Bon Jovi so
 where Crunch fits.
 
 Writes to the data folder (see paths.py):
-  ai_classified.json   the model's answer per song key, so later runs only ask about new songs
+  ai_classified.json   the model's answer per song key (shared with RS Companion), so later runs
+                       only ask about new songs; each song's own answer is used for it
   ai_suggestions.json  "song_styles" and "artists" entries in presets.json's format where the
-                       model disagrees with the rules, plus "_songs": one row per disagreement
-                       with the model's reason, for review. Your own song_styles and artists in
-                       presets.json win over these; delete the file to turn the suggestions off.
+                       model disagrees with the rules, used for songs without an answer (e.g. a
+                       new song by a band it knows), plus "_songs": one row per disagreement with
+                       the model's reason, for review. Your own song_styles and artists in
+                       presets.json win over both.
 The rules are compared without the current suggestions, so a run never mistakes them for the rules.
 
 Sends artist names, song titles and the numbers above to the OpenAI API. Needs the openai
@@ -33,7 +35,7 @@ import paths
 import rig
 from presets import Presets
 
-CLASSIFIED = os.path.join(paths.DATA_DIR, "ai_classified.json")
+CLASSIFIED = paths.AI_CLASSIFIED
 DEFAULT_STYLES = [{"name": "Soft"}, {"name": "Classic rock", "from": 0.3}, {"name": "Metal", "from": 0.75}]
 SLOTS = ["Base", "A", "B", "C", "D"]
 

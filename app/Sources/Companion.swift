@@ -13,6 +13,19 @@ struct ToneRow: Identifiable, Equatable {
     var id: String { slot }
 }
 
+/// What an AI model says about the current song, as the window shows it.
+struct AIVerdict: Equatable {
+    enum State: Equatable {
+        case asking
+        case answered(Presets.Answer)
+        case guess                  // answered with low confidence: not used
+        case failed(String)
+        case rejected               // you rejected its answer for this song
+    }
+    let state: State
+    var changes: [String] = []      // what it changes here: "dist: Heavy → Crunch", "style: Soft → Classic rock"
+}
+
 /// Receives the dylib's events, keeps the current song and tone, maps tones to categories with
 /// presets.json, and sends a Program Change when the active tone's category changes. With
 /// song tone messages on, it also describes the song's tones in a SysEx when a song loads
@@ -59,6 +72,10 @@ final class Companion: ObservableObject {
     private var songParts: [GameEvent.Part] = []
     private var toneDrives: [String: Double] = [:]  // tone key (lowercased) -> drive 0-1, from the song's files
     private var drivesKey = ""                      // archive|song the drives were read for
+    private var rigArrangements: [Rig.Arrangement] = []  // the song's parts, from its files (readDrives)
+    @Published private(set) var ai: AIVerdict?
+    private var asking: Set<String> = []            // song keys the AI model is being asked about
+    private var aiFailures: [String: String] = [:]  // song key -> why asking failed (asked again next launch)
     private let log: FileHandle?
     private(set) var overlay: Overlay!
 
@@ -258,6 +275,7 @@ final class Companion: ObservableObject {
             resend()
         }
         overlay.configure(enabled: new.overlayEnabled, port: new.overlayPort)
+        if new.aiClassify { classifyIfNeeded() }
     }
 
     func program(for category: Category) -> Int { settings.program(for: category) }
@@ -276,6 +294,11 @@ final class Companion: ObservableObject {
     /// part of this song that uses it, saves presets.json, and switches right away if that
     /// changes the active tone's category.
     func override(_ row: ToneRow, to category: Category?) {
+        setOverride(row, to: category)
+        remap(reason: "override")
+    }
+
+    private func setOverride(_ row: ToneRow, to category: Category?) {
         var slots = [(arrangement: arrangement, slot: row.slot)]
         for part in songParts {
             for (slot, key) in part.slots where key.lowercased() == row.key.lowercased() {
@@ -285,7 +308,135 @@ final class Companion: ObservableObject {
         presets.set(slots, key: row.key, to: category)
         let places = slots.map { "\($0.arrangement) \($0.slot)" }.joined(separator: ", ")
         record("override: \(row.key) → \(category?.name ?? "automatic") in \(places)")
-        remap(reason: "override")
+    }
+
+    // MARK: AI
+
+    /// Keeps what the AI model changed for this song as your own: its tones' categories as
+    /// overrides (in every part that uses them) and its style in "song_styles".
+    func acceptAI() {
+        guard case .answered = ai?.state else { return }
+        let key = Presets.songKey(arrangement)
+        for row in tones where row.reason.hasSuffix(", AI") { setOverride(row, to: row.category) }
+        let heaviness = Rig.heaviness(rigArrangements)
+        let style = presets.style(heaviness: heaviness, artist: artist, songKey: key)
+        if style != presets.style(heaviness: heaviness, artist: artist, songKey: key, ai: false) {
+            presets.setStyle(key, style)
+            record("AI accepted: \(key) style \(style)")
+        }
+        remap(reason: "AI accepted")
+    }
+
+    /// A new API key: songs that failed are asked about again.
+    func apiKeyChanged() {
+        aiFailures = [:]
+        refreshAI()
+        classifyIfNeeded()
+    }
+
+    /// Stops (or with false, starts again) using the AI model's answer for this song.
+    func rejectAI(_ rejected: Bool = true) {
+        let key = Presets.songKey(arrangement)
+        presets.setRejected(key, rejected)
+        record("AI " + (rejected ? "rejected" : "used again") + " for \(key)")
+        remap(reason: rejected ? "AI rejected" : "AI used again")
+    }
+
+    /// The window's view of the AI for the current song.
+    private func refreshAI() {
+        guard song != nil, !arrangement.isEmpty else { ai = nil; return }
+        let key = Presets.songKey(arrangement)
+        if presets.isRejected(key) {
+            ai = AIVerdict(state: .rejected)
+        } else if let answer = presets.answer(key) {
+            ai = AIVerdict(state: .answered(answer), changes: aiChanges(key))
+        } else if presets.answered(key) {
+            ai = AIVerdict(state: .guess)
+        } else if asking.contains(key) {
+            ai = AIVerdict(state: .asking)
+        } else if let why = aiFailures[key] {
+            ai = AIVerdict(state: .failed(why))
+        } else {
+            ai = nil
+        }
+    }
+
+    /// What the AI changes for this song: tones it maps differently, and the style.
+    private func aiChanges(_ key: String) -> [String] {
+        var out: [String] = []
+        for row in tones where row.reason.hasSuffix(", AI") {
+            let t = songTones.first { $0.slot == row.slot } ?? gameTone(slot: row.slot, key: row.key)
+            let change = "\(row.key): \(match(t, ai: false).category.name) → \(row.category.name)"
+            if !out.contains(change) { out.append(change) }  // a tone in several slots
+        }
+        let heaviness = Rig.heaviness(rigArrangements)
+        let style = presets.style(heaviness: heaviness, artist: artist, songKey: key)
+        let ruled = presets.style(heaviness: heaviness, artist: artist, songKey: key, ai: false)
+        if style != ruled { out.append("style: \(ruled) → \(style)") }
+        return out
+    }
+
+    /// With the AI on and a key saved, asks the model about a song it hasn't answered yet, in the
+    /// background; the song is mapped again when the answer comes.
+    private func classifyIfNeeded() {
+        guard settings.aiClassify, song != nil, !arrangement.isEmpty, !rigArrangements.isEmpty else { return }
+        let key = Presets.songKey(arrangement)
+        guard !presets.answered(key), !presets.isRejected(key), !asking.contains(key), aiFailures[key] == nil else { return }
+        guard let apiKey = APIKey.get() else { return }
+        let song = aiSong(key)
+        let model = settings.aiModel, styles = presets.styleList, path = presets.answersPath
+        asking.insert(key)
+        refreshAI()
+        record("AI: asking \(model) about \(key)")
+        Task {
+            do {
+                let answer = try await AIClassifier.classify(song, styles: styles, model: model, key: apiKey)
+                AIClassifier.save(answer, songKey: key, to: path)
+                asking.remove(key)
+                record("AI: \(key) \(answer["style"] as? String ?? "?"), \(answer["distortion"] as? String ?? "?") "
+                    + "(\(answer["confidence"] as? String ?? "?")): \(answer["reason"] as? String ?? "")")
+                presets.reload()
+                remap(reason: "AI answer")
+            } catch {
+                asking.remove(key)
+                aiFailures[key] = "\(error)"
+                record("AI: asking about \(key) failed: \(error)")
+                refreshAI()
+            }
+        }
+    }
+
+    /// What the model is told about the current song (classify_songs.py songs_from_index): what
+    /// the rules alone give its guitar parts' tones.
+    private func aiSong(_ key: String) -> AIClassifier.Song {
+        let slotNames = ["Base", "A", "B", "C", "D"]
+        let guitar = rigArrangements.filter { ["Lead", "Rhythm", "Combo"].contains($0.path) }
+        var categories: [String: Int] = [:], amps: [(String, Int)] = []
+        for a in guitar {
+            for (i, toneKey) in a.slots.enumerated() where !toneKey.isEmpty && i < slotNames.count {
+                guard let t = Rig.tone(a, key: toneKey) else { continue }
+                let amp = t.gear["Amp"]?.key
+                let m = presets.match(arrangement: a.name, slot: slotNames[i],
+                                      tone: Presets.Tone(key: toneKey, descriptors: t.descriptors, amp: amp,
+                                                         gain: t.gear["Amp"]?.knob("Gain"), drive: Rig.drive(t)),
+                                      artist: artist, ai: false)
+                categories[m.category.name, default: 0] += 1
+                if let amp {
+                    let name = amp.hasPrefix("Amp_") ? String(amp.dropFirst(4)) : amp
+                    if let j = amps.firstIndex(where: { $0.0 == name }) { amps[j].1 += 1 } else { amps.append((name, 1)) }
+                }
+            }
+        }
+        let heaviness = Rig.heaviness(rigArrangements)
+        return AIClassifier.Song(
+            songKey: guitar.first.map { Presets.songKey($0.name) } ?? key, artist: artist.trimmingCharacters(in: .whitespaces),
+            title: (song ?? "").trimmingCharacters(in: .whitespaces), tuning: guitar.first.flatMap(Rig.tuningName),
+            tempo: (guitar.first ?? rigArrangements.first)?.tempo, heaviness: heaviness,
+            ruleStyle: presets.style(heaviness: heaviness, artist: artist, songKey: key, ai: false),
+            ruleCategories: categories,
+            amps: amps.enumerated()
+                .sorted { $0.element.1 != $1.element.1 ? $0.element.1 > $1.element.1 : $0.offset < $1.offset }  // most used first
+                .prefix(3).map(\.element.0))
     }
 
     /// Picks up rscompanion.json edited by hand (checked with every event and every 2 s).
@@ -385,6 +536,8 @@ final class Companion: ObservableObject {
         madeTones = nil
         toneDrives = [:]
         drivesKey = ""
+        rigArrangements = []
+        ai = nil
     }
 
     private func setSong(_ e: GameEvent) {
@@ -397,6 +550,8 @@ final class Companion: ObservableObject {
         readDrives()
         tones = rows()
         makeSongTones()
+        refreshAI()
+        classifyIfNeeded()
     }
 
     /// The song's file name prefix ("selftrap" for "selftrap_rhythm").
@@ -411,7 +566,9 @@ final class Companion: ObservableObject {
         guard key != drivesKey else { return }
         drivesKey = key
         toneDrives = [:]
+        rigArrangements = []
         guard !archive.isEmpty, let arrangements = Rig.read(archive: archive, prefix: songPrefix) else { return }
+        rigArrangements = arrangements
         for a in arrangements {
             for key in a.slots where !key.isEmpty {
                 if let t = Rig.tone(a, key: key), let d = Rig.drive(t) { toneDrives[key.lowercased()] = d }
@@ -475,6 +632,7 @@ final class Companion: ObservableObject {
     /// Mapping changed: refresh the rows, and switch if the active tone's category changed.
     private func remap(reason: String) {
         tones = rows()
+        refreshAI()
         guard let a = active else { return }
         let m = match(a)
         activeCategory = m.category
@@ -482,11 +640,11 @@ final class Companion: ObservableObject {
         send(reason: "\(a.tone) (\(reason))")
     }
 
-    private func match(_ t: GameEvent.Tone, overrides: Bool = true) -> Presets.Match {
+    private func match(_ t: GameEvent.Tone, overrides: Bool = true, ai: Bool = true) -> Presets.Match {
         presets.match(arrangement: arrangement, slot: t.slot,
                       tone: Presets.Tone(key: t.tone, descriptors: t.descriptors, amp: t.amp, gain: t.gain,
                                          drive: toneDrives[t.tone.lowercased()]),
-                      artist: artist, overrides: overrides)
+                      artist: artist, overrides: overrides, ai: ai)
     }
 
     /// The program for the active tone: its song tone's, or its category's.
