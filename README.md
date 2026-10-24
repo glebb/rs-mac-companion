@@ -413,6 +413,7 @@ with it):
 ./tests/run_dylib_test.sh     # the game library in a stand-in game (~2 min)
 ./tests/run_app_test.sh       # stand-in → library → app → MIDI (~70 s; quit RS Companion first)
 ./tests/run_installer_test.sh # the app's installer on a copy of the game executable (seconds)
+./tests/run_events_test.sh    # the game libraries' events for very large songs: valid JSON, whole parts (a second; no game needed)
 ./tests/run_song_tones_test.sh # song tone messages: the SysEx at song load, then its Program Changes (~50 s; quit RS Companion first)
 ./tests/run_overlay_test.sh   # the stream overlays: RockSniffer's API, addon pages, OBS files (~35 s; quit RS Companion first)
 ./tests/run_standin_test.sh   # rstone.py + rsprobe in a stand-in game (~70 s)

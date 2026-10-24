@@ -257,7 +257,8 @@ of the game executable. `tools/add_load_dylib.py` does step 3 by hand for any ex
 | `tests/run_overlay_test.sh` | stand-in → dylib → app with stream overlays: RockSniffer's API (`GET /` with the song details read from `songs.psarc`, `/addons`, `/storage`), the text files and album art, the state after the game is gone |
 | `tests/run_app_test.sh` | stand-in → dylib → app → MIDI (`tools/midi_monitor.swift`), with a song override, a live `presets.json` edit, custom MIDI settings and a restart catch-up |
 | `tests/run_song_tones_test.sh` | stand-in → dylib → app with song tone messages on: the SysEx message at song load (style, tones in order of first use with their categories and effects) and Program Change 8 and 9 |
-| `tests/run_installer_test.sh` | the installer on a copy of the game executable: fresh install, repeat, prototype migration, update, uninstall back to the original bytes, missing game |
+| `tests/run_installer_test.sh` | the installer on a copy of the game executable: fresh install, repeat, prototype migration, update, uninstall back to the original bytes, missing game, a damaged executable |
+| `tests/run_events_test.sh` | `rscore.c`'s events from `tests/events_harness.c`, for an ordinary song and one with 16 arrangements and every name as long as allowed: valid JSON, only whole parts (as many as fit), the log saying how many |
 | `tests/run_ai_app_test.sh` | `AIClassifier.swift` and `Presets.swift` against `tests/stub_responses.py` (a stand-in for OpenAI): the request (key, model, the script's prompt, strict schema), the saved answer, the song's remap and style, rejecting and using again, a wrong key |
 | `tests/run_classify_test.sh` | `classify_songs.py` with `tests/stub_openai` for the `openai` package, on songs from your index: batches, suggestions, low-confidence answers left out, `presets.py` using them after your own entries |
 

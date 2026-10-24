@@ -192,6 +192,10 @@ const rs_tone_def *tone_def(const arrangement *a, int slot) {
 // before the song timer is locked; up to ~1 s late), "timer" (song timer + timeline; on time).
 
 
+// The largest event: song or state, with its names and tones (up to about 9 KB escaped) and the
+// parts (build_parts; the libraries keep them in 8 KB).
+#define EVENT_MAX 24576
+
 static int g_sock = -1;
 static struct sockaddr_un g_sock_addr;
 int g_last_slot = -1;
@@ -209,7 +213,7 @@ void events_open(const char *data_dir) {
     g_sock = socket(AF_UNIX, SOCK_DGRAM, 0);
     if (g_sock < 0) return;
     fcntl(g_sock, F_SETFL, O_NONBLOCK);
-    int size = 16384;  // datagrams may exceed the 2 KB default
+    int size = EVENT_MAX + 1024;  // datagrams may exceed the 2 KB default
     setsockopt(g_sock, SOL_SOCKET, SO_SNDBUF, &size, sizeof size);
 }
 
@@ -281,6 +285,8 @@ static void add_tones(char *ev, size_t size, const arrangement *a) {
     strlcat(ev, "]", size);
 }
 
+static void add_parts(char *ev, size_t size, const char *parts);
+
 void emit_tone(const arrangement *a, int slot, const char *source, double time_s) {
     char ev[4096] = "{\"event\": \"tone\", ";
     add_song(ev, sizeof ev, a);
@@ -304,12 +310,11 @@ void emit_tone(const arrangement *a, int slot, const char *source, double time_s
 }
 
 void emit_song(const arrangement *a, const char *parts) {
-    char ev[12288] = "{\"event\": \"song\", ";
+    char ev[EVENT_MAX] = "{\"event\": \"song\", ";
     add_song(ev, sizeof ev, a);
     strlcat(ev, ", ", sizeof ev);
     add_tones(ev, sizeof ev, a);
-    strlcat(ev, ", ", sizeof ev);
-    strlcat(ev, parts, sizeof ev);
+    add_parts(ev, sizeof ev, parts);
     strlcat(ev, "}", sizeof ev);
     send_event(ev, 1);
 }
@@ -317,7 +322,7 @@ void emit_song(const arrangement *a, const char *parts) {
 // Heartbeat: the whole current state, so an app started mid-song catches up and can tell that
 // the game (with this dylib) is running. a is NULL before the first song.
 void emit_state(const arrangement *a, const char *parts, int locked, double time_s) {
-    char ev[12288];
+    char ev[EVENT_MAX];
     snprintf(ev, sizeof ev, "{\"event\": \"state\", \"protocol\": %d, \"pid\": %d, \"lead_ms\": %d, \"timer_locked\": %s",
              PROTOCOL, getpid(), g_lead_ms, locked ? "true" : "false");
     if (g_game) {
@@ -329,8 +334,7 @@ void emit_state(const arrangement *a, const char *parts, int locked, double time
         add_song(ev, sizeof ev, a);
         strlcat(ev, ", ", sizeof ev);
         add_tones(ev, sizeof ev, a);
-        strlcat(ev, ", ", sizeof ev);
-        strlcat(ev, parts, sizeof ev);
+        add_parts(ev, sizeof ev, parts);
         if (g_last_slot >= 0) {
             strlcat(ev, ", \"slot\": ", sizeof ev);
             json_str(ev, sizeof ev, SLOT_NAMES[g_last_slot]);
@@ -348,25 +352,39 @@ void emit_state(const arrangement *a, const char *parts, int locked, double time
 }
 
 // "parts": [{"arrangement": ..., "slots": {"Base": key, ...}}] for every arrangement of a song,
-// so the app can apply an override to all parts that use a tone.
+// so the app can apply an override to all parts that use a tone. Only whole entries go in: the
+// arrangements that don't fit in size are left out (and logged), so the JSON stays valid.
 void build_parts(const song *s, char *out, size_t size) {
     snprintf(out, size, "\"parts\": [");
+    int n = 0;
     for (int i = 0; s && i < s->narr; i++) {
         const arrangement *p = &s->arr[i];
-        strlcat(out, i ? ", {\"arrangement\": " : "{\"arrangement\": ", size);
-        json_str(out, size, p->name);
-        strlcat(out, ", \"slots\": {", size);
-        int n = 0;
+        char e[4096] = "{\"arrangement\": ";
+        json_str(e, sizeof e, p->name);
+        strlcat(e, ", \"slots\": {", sizeof e);
+        int k = 0;
         for (int slot = 0; slot < 5; slot++) {
             if (!p->slots[slot][0]) continue;
-            if (n++) strlcat(out, ", ", size);
-            json_str(out, size, SLOT_NAMES[slot]);
-            strlcat(out, ": ", size);
-            json_str(out, size, p->slots[slot]);
+            if (k++) strlcat(e, ", ", sizeof e);
+            json_str(e, sizeof e, SLOT_NAMES[slot]);
+            strlcat(e, ": ", sizeof e);
+            json_str(e, sizeof e, p->slots[slot]);
         }
-        strlcat(out, "}}", size);
+        strlcat(e, "}}", sizeof e);
+        // Cut short (json_str and strlcat stop near the end), or no room for it, ", " and "]".
+        if (strlen(e) >= sizeof e - 16 || strlen(out) + strlen(e) + 4 >= size) continue;
+        if (n++) strlcat(out, ", ", size);
+        strlcat(out, e, size);
     }
     strlcat(out, "]", size);
+    if (s && n < s->narr) logline("warning: %d of %d arrangements fit in the events' parts", n, s->narr);
+}
+
+// ", " and the parts (build_parts) if they fit in ev with room to spare for what follows, else an
+// empty list, so the event stays valid JSON.
+static void add_parts(char *ev, size_t size, const char *parts) {
+    strlcat(ev, ", ", size);
+    strlcat(ev, strlen(ev) + strlen(parts) + 1024 < size ? parts : "\"parts\": []", size);
 }
 
 // Settings from DATA_DIR/rscompanion.json, re-read when the file changes:
