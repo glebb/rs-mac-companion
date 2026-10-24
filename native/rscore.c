@@ -58,7 +58,8 @@ void logline(const char *fmt, ...) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     char hms[16];
-    strftime(hms, sizeof hms, "%H:%M:%S", localtime(&ts.tv_sec));
+    struct tm tm;
+    strftime(hms, sizeof hms, "%H:%M:%S", localtime_r(&ts.tv_sec, &tm));  // several threads log
     pthread_mutex_lock(&g_log_lock);
     fprintf(g_logf, "%s.%03ld %s\n", hms, ts.tv_nsec / 1000000, msg);
     pthread_mutex_unlock(&g_log_lock);
