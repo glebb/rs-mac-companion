@@ -594,8 +594,9 @@ final class Companion: ObservableObject {
         songTonesKey = key
         let prefix = songPrefix
         let t0 = Date()
-        guard let arrangements = Rig.read(archive: archive, prefix: prefix),
-              var made = SongTones.make(song: song, artist: artist, arrangement: arrangement, from: arrangements,
+        // The song's parts as readDrives read them from the archive (once per song).
+        guard !rigArrangements.isEmpty,
+              var made = SongTones.make(song: song, artist: artist, arrangement: arrangement, from: rigArrangements,
                                         firstProgram: settings.songToneFirstProgram,
                                         category: { slot, key in
                                             self.match(self.gameTone(slot: slot, key: key)).category
