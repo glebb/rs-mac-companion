@@ -541,6 +541,12 @@ final class Companion: ObservableObject {
     }
 
     private func setSong(_ e: GameEvent) {
+        // Another arrangement: the previous one's tones and parts don't apply. A tone event has
+        // neither; the next heartbeat brings them (within a second).
+        if (e.arrangement ?? "") != arrangement || (e.archive.map { $0 != archive } ?? false) {
+            songTones = []
+            songParts = []
+        }
         song = e.song
         artist = e.artist ?? ""
         arrangement = e.arrangement ?? ""
