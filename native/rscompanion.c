@@ -922,15 +922,20 @@ static void *searcher(void *arg) {
 
 // ================================================================ banner watch
 
-// New copies of "<Song> - " in memory are the game's tone banners.
+// New copies of "<Song> - " in memory are the game's tone banners. The addresses already seen
+// go in an open-addressing table; at half full it starts over with a new first scan (otherwise a
+// full table would make the lookup loop forever).
+#ifndef SEEN_CAP
 #define SEEN_CAP (1 << 16)
+#endif
+_Static_assert(SEEN_CAP >= 64 && (SEEN_CAP & (SEEN_CAP - 1)) == 0, "SEEN_CAP: a power of two");
 
 static void *banner_watch(void *arg) {
     (void)arg;
     uint8_t *buf = own_alloc(CHUNK);
     uint64_t *seen = own_alloc(SEEN_CAP * 8);
     banner_search *bs = own_alloc(sizeof *bs);  // the pattern lives in our tagged memory
-    unsigned gen = 0, count = 0;
+    unsigned gen = 0, count = 0, nseen = 0;
     int first = 1, nchanges = 0;
     static float changes[MAX_CHANGES];  // change times of the arrangement (in our image: not scanned)
     double last_scan = 0;
@@ -955,6 +960,13 @@ static void *banner_watch(void *arg) {
             memset(seen, 0, SEEN_CAP * 8);
             first = 1;
             count = 0;
+            nseen = 0;
+        }
+        if (nseen >= SEEN_CAP / 2) {
+            logline("banner watch: %u addresses seen; starting over", nseen);
+            memset(seen, 0, SEEN_CAP * 8);
+            first = 1;
+            nseen = 0;
         }
         // With a confirmed timer, banners only double-check it: scan just after each tone change
         // (when the game creates the banner), plus every 15 s in case the timer is wrong.
@@ -978,7 +990,7 @@ static void *banner_watch(void *arg) {
         bs->n = 0;
         scan(buf, only, find_text, bs);
         double t = now_s();
-        for (int i = 0; i < bs->n; i++) {
+        for (int i = 0; i < bs->n && nseen < SEEN_CAP - 1; i++) {  // a free slot ends every lookup
             uint64_t a = bs->hits[i];
             size_t h = (size_t)((a >> 3) * 0x9E3779B97F4A7C15ULL) & (SEEN_CAP - 1);
             int known = 0;
@@ -991,6 +1003,7 @@ static void *banner_watch(void *arg) {
             }
             if (known) continue;
             seen[h] = a;
+            nseen++;
             if (first) continue;  // what is there already is old
             char text[128] = "";
             if (!safe_read(a, text, 96)) continue;
