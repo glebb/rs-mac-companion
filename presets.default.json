@@ -48,6 +48,6 @@
     {"preset": "Clean", "name": ["clean", "cln"]}
   ],
   "default": "Clean",
-  "styles": [{"name": "Soft"}, {"name": "Classic rock", "from": 0.4}, {"name": "Metal", "from": 0.75}],
+  "styles": [{"name": "Soft"}, {"name": "Classic rock", "from": 0.3}, {"name": "Metal", "from": 0.75}],
   "song_styles": {}
 }

@@ -261,7 +261,7 @@ RS Companion reads preset names as categories: Clean, Crunch, Heavy and Lead dir
 through `categories` (Distortion → Heavy, Acoustic → Clean, Bass → Clean, Bass Drive → Crunch).
 
 For song tone messages, `styles` labels each song by its heaviness (the last entry whose `from`
-the song reaches; Soft, Classic rock from 0.4, Metal from 0.75 by default), and `song_styles`
+the song reaches; Soft, Classic rock from 0.3, Metal from 0.75 by default), and `song_styles`
 sets the label for a song key or an artist, e.g. `{"AC/DC": "Classic rock"}`; after it, the
 `song_styles` in `ai_suggestions.json`.
 

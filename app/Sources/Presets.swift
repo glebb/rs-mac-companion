@@ -189,7 +189,7 @@ final class Presets {
 
     /// The style label of a song, for song tone messages: "song_styles" names one for a song key
     /// or an artist (song key first), then the AI suggestions' "song_styles" the same way;
-    /// otherwise the last of "styles" whose "from" the song's heaviness reaches. Without a "styles" section: Soft, Classic rock (0.4), Metal (0.75).
+    /// otherwise the last of "styles" whose "from" the song's heaviness reaches. Without a "styles" section: Soft, Classic rock (0.3), Metal (0.75).
     /// (Read too: "banks"/"song_banks" and "rigs"/"song_rigs", what styles were called before.)
     func style(heaviness: Double?, artist: String, songKey: String) -> String {
         for source in [songStyles, ai["song_styles"] as? [String: Any] ?? [:]] {
@@ -219,13 +219,13 @@ final class Presets {
         (data["song_styles"] ?? data["song_banks"] ?? data["song_rigs"]) as? [String: Any] ?? [:]
     }
 
-    /// "styles" by heaviness; Soft, Classic rock (0.4), Metal (0.75) without the section.
+    /// "styles" by heaviness; Soft, Classic rock (0.3), Metal (0.75) without the section.
     private var styles: [(name: String, from: Double)] {
         let list = ((data["styles"] ?? data["banks"] ?? data["rigs"]) as? [[String: Any]] ?? []).compactMap { r -> (name: String, from: Double)? in
             guard let name = r["name"] as? String else { return nil }
             return (name, (r["from"] as? NSNumber)?.doubleValue ?? 0)
         }
-        return list.isEmpty ? [("Soft", 0), ("Classic rock", 0.4), ("Metal", 0.75)] : list
+        return list.isEmpty ? [("Soft", 0), ("Classic rock", 0.3), ("Metal", 0.75)] : list
     }
 
     func category(of preset: String) -> Category {

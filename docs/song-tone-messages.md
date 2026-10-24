@@ -110,7 +110,7 @@ Changes doesn't know about song tones.
 `style` is a label for the song, set in `presets.json`:
 
 ```json
-"styles": [{"name": "Soft"}, {"name": "Classic rock", "from": 0.4}, {"name": "Metal", "from": 0.75}],
+"styles": [{"name": "Soft"}, {"name": "Classic rock", "from": 0.3}, {"name": "Metal", "from": 0.75}],
 "song_styles": {"AC/DC": "Classic rock", "skid18an": "Metal"}
 ```
 

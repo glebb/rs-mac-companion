@@ -34,7 +34,7 @@ import rig
 from presets import Presets
 
 CLASSIFIED = os.path.join(paths.DATA_DIR, "ai_classified.json")
-DEFAULT_STYLES = [{"name": "Soft"}, {"name": "Classic rock", "from": 0.4}, {"name": "Metal", "from": 0.75}]
+DEFAULT_STYLES = [{"name": "Soft"}, {"name": "Classic rock", "from": 0.3}, {"name": "Metal", "from": 0.75}]
 SLOTS = ["Base", "A", "B", "C", "D"]
 
 SYSTEM = """You classify songs for a guitar practice tool that switches the player's amp presets \
@@ -155,11 +155,11 @@ def classify(client, model, batch, style_names):
         except (openai.RateLimitError, openai.APIConnectionError, openai.InternalServerError) as e:
             if attempt == 2:
                 raise
-            print(f"  {type(e).__name__}, retrying", file=sys.stderr)
+            print(f"  {type(e).__name__}, retrying", file=sys.stderr, flush=True)
             time.sleep(10 * (attempt + 1))
     if response.status != "completed" or not response.output_text:
         why = getattr(response.incomplete_details, "reason", None) or response.status
-        print(f"  no answer ({why}); this batch is asked again next run", file=sys.stderr)
+        print(f"  no answer ({why}); this batch is asked again next run", file=sys.stderr, flush=True)
         return {}
     text = response.output_text
     wanted = {s["song_key"].lower() for s in batch}
@@ -233,7 +233,7 @@ def main():
         style_names = [s["name"] for s in styles(presets)]
         for i in range(0, len(todo), args.batch):
             batch = todo[i:i + args.batch]
-            print(f"asking {args.model} about songs {i + 1}-{i + len(batch)} of {len(todo)}")
+            print(f"asking {args.model} about songs {i + 1}-{i + len(batch)} of {len(todo)}", flush=True)
             for key, a in classify(client, args.model, batch, style_names).items():
                 answers[key] = dict(a, model=args.model)
             with open(CLASSIFIED, "w") as f:  # after every batch, so an interrupted run keeps its answers
