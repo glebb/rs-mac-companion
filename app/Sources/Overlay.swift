@@ -23,15 +23,19 @@ final class Overlay {
     private var songKey = ""
     private var heartbeatTime: Double?
     private var stats: GameEvent.Stats?
+    private var lastStats: GameEvent.Stats? // kept after the song: addons read its noteData at the song's end
     private var statsSince: Date?           // when the current stats object appeared
     private var statsAt: Date?              // last stats event
     private var timerMovedAt: Date?
     private var lastTimer: Double?
     private var ended = false               // the song was left; menus until the next song
     private var lastMode = 0                // the mode of the last song played (for its review)
+    private var songAt: Date?               // last song event
+    private var leftAt: Date?               // when the last song's stats went
 
     // Song details (read in the background, cached per archive and song)
     private var detailsKey = ""
+    private var loadedKey = ""                   // detailsKey once its details are in (or unreadable)
     private var detailsJSON = Data("null".utf8)  // as RockSniffer before its first song (addons check for it)
     private var details: [String: Any]?
     private var ids: [String: String] = [:]
@@ -93,6 +97,7 @@ final class Overlay {
                 heartbeatTime = e.time
             }
             guard let arr = e.arrangement, let path = e.archive, !path.isEmpty else { return }
+            if e.event == "song" { songAt = Date() }
             if e.event == "song" || arr != arrangement { ended = false }
             arrangement = arr
             songKey = e.song_key ?? ""
@@ -102,12 +107,14 @@ final class Overlay {
             }
         case "stats":
             if e.live == false {
+                if stats != nil { leftAt = Date() }
                 stats = nil
                 statsAt = nil
                 return
             }
             if stats == nil { statsSince = Date(); ended = false }
             stats = e.stats
+            lastStats = e.stats
             statsAt = Date()
             lastMode = mode
             if let t = e.time {
@@ -127,22 +134,26 @@ final class Overlay {
     private func loadDetails() {
         let key = Self.key(archive, arrangement)
         detailsKey = key
-        if let hit = cache[key] { return setDetails(hit) }
+        if let hit = cache[key] { return setDetails(hit, key) }
         let (path, prefix) = (archive, String(key.split(separator: "|").last ?? ""))
         Task.detached(priority: .utility) {
             let t0 = Date()
             let read = SongDetails.read(archive: path, prefix: prefix)
             await MainActor.run {
-                guard let read else { return self.record("overlays: could not read \(path)") }
+                guard let read else {
+                    if self.detailsKey == key { self.loadedKey = key }
+                    return self.record("overlays: could not read \(path)")
+                }
                 self.cache[key] = read
                 self.record(String(format: "overlays: read %@ from %@ in %.0f ms", prefix, (path as NSString).lastPathComponent,
                                    Date().timeIntervalSince(t0) * 1000))
-                if self.detailsKey == key { self.setDetails(read) }
+                if self.detailsKey == key { self.setDetails(read, key) }
             }
         }
     }
 
-    private func setDetails(_ read: (details: [String: Any], ids: [String: String])) {
+    private func setDetails(_ read: (details: [String: Any], ids: [String: String]), _ key: String) {
+        loadedKey = key
         details = read.details
         ids = read.ids
         detailsJSON = (try? JSONSerialization.data(withJSONObject: read.details)) ?? detailsJSON
@@ -157,17 +168,23 @@ final class Overlay {
 
 
     /// RockSniffer's states from what the dylib sees: a song is played while its note-stats
-    /// object exists; it ends when the timer stops at the song's end or the object goes.
+    /// object exists; it ends when the timer stops at the song's end or the object goes. The
+    /// stats object can appear before the song event names the song (the arrangement is found
+    /// after it), so a new song stays "selected" until its song event and details are in (or
+    /// 2 s have passed): addons start a song with the details they see on "starting".
     private func tick() {
         let now = Date()
-        if let at = statsAt, now.timeIntervalSince(at) > 2 { stats = nil; statsAt = nil }
+        if let at = statsAt, now.timeIntervalSince(at) > 2 { stats = nil; statsAt = nil; leftAt = now }
         let previous = state
         var next: State
         if !connected {
             next = .none
         } else if stats != nil {
             let stopped = timerMovedAt.map { now.timeIntervalSince($0) > 1.5 } ?? false
-            if let since = statsSince, now.timeIntervalSince(since) < 1 { next = .songStarting }
+            let since = statsSince ?? now
+            let named = songAt.map { at in leftAt.map { at > $0 } ?? true } ?? false
+            if (!named || detailsKey != loadedKey) && now.timeIntervalSince(since) < 2 { next = .songSelected }
+            else if previous == .songSelected || now.timeIntervalSince(since) < 1 { next = .songStarting }
             else if stopped && songLength > 0 && (lastTimer ?? 0) >= songLength - 1 { next = .songEnding }
             else { next = .songPlaying }
         } else if previous == .songPlaying || previous == .songStarting || (previous == .songEnding && !ended) {
@@ -187,9 +204,10 @@ final class Overlay {
 
     private var songTimer: Double { lastTimer.flatMap { stats != nil ? $0 : nil } ?? heartbeatTime ?? 0 }
 
-    /// RockSniffer's noteData (LearnASongNoteData or ScoreAttackNoteData), or nil.
+    /// RockSniffer's noteData (LearnASongNoteData or ScoreAttackNoteData), or nil before the
+    /// first song. After a song it stays the song's last, as RockSniffer's.
     private func noteData() -> [String: Any]? {
-        guard let s = stats else { return nil }
+        guard let s = stats ?? lastStats else { return nil }
         let total = s.hits + s.misses
         let accuracy = total == 0 ? 100.0 : s.hits == 0 ? 0 : Double(s.hits) / Double(total) * 100
         var d: [String: Any] = [

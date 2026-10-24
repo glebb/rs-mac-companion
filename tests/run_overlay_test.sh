@@ -12,7 +12,10 @@
 #   - refused: another Host (DNS rebinding), a PUT from another website's page, a negative
 #     Content-Length (400, and the app keeps serving),
 #   - the OBS text files and album_cover.jpeg in DATA_DIR/output,
-#   - state 0 (no game) a few seconds after the game is gone.
+#   - while the song starts, "starting" and "playing" only with that song's details (addons start
+#     a song with what they see then; the stats can appear before the song is named),
+#   - state 0 (no game) a few seconds after the game is gone, the song's last noteData still
+#     there (RockSniffer's addons read it once the song is left).
 # Uses a temporary data folder, so your own data and a running RS Companion are not touched
 # (the MIDI source name is the same, so quit a running RS Companion first).
 set -e
@@ -29,13 +32,22 @@ AUDIO=$(build/rstool toc "$ARCHIVE" | awk '$4 ~ /\.wem$/ {print $1; exit}')
 
 DATA=$(mktemp -d /tmp/rsc.XXXXXX)  # short: socket paths are limited to 104 characters
 APP_BIN="app/build/RS Companion.app/Contents/MacOS/RSCompanion"
-APP= STANDIN=
-trap 'kill $APP $STANDIN 2>/dev/null || true; wait 2>/dev/null; rm -rf "$DATA"' EXIT
+APP= STANDIN= POLL=
+trap 'kill $APP $STANDIN $POLL 2>/dev/null || true; wait 2>/dev/null; rm -rf "$DATA"' EXIT
 URL=http://127.0.0.1:19938
 
 echo '{"overlay_enabled": true, "overlay_port": 19938}' > "$DATA/rscompanion.json"
 RS_COMPANION_DATA="$DATA" "$APP_BIN" & APP=$!
 sleep 2
+python3 - $URL > "$DATA/states.txt" <<'EOF' & POLL=$!
+import json, sys, time, urllib.request
+while True:  # the state, the readout's song and the details' song, 4 times a second
+    try:
+        s = json.load(urllib.request.urlopen(sys.argv[1], timeout=1))
+        print(s["currentState"], s["memoryReadout"]["songID"], (s["songDetails"] or {}).get("songID"), flush=True)
+    except Exception: pass
+    time.sleep(0.25)
+EOF
 RS_COMPANION_DATA="$DATA" DYLD_INSERT_LIBRARIES="$PWD/build/librscompanion.dylib" \
   build/rs-standin-dylib "$ARCHIVE" "$SNG" "$AUDIO" notones & STANDIN=$!
 sleep 28  # the song plays from 5 s; the stats objects are found within ~10 s of that
@@ -58,6 +70,7 @@ printf 'PUT /storage/test_addon/neg HTTP/1.1\r\nHost: 127.0.0.1:19938\r\nContent
 curl -s -o "$DATA/stored_after.txt" $URL/storage/test_addon/scores
 curl -s -o "$DATA/page.txt" $URL/storage/test_addon/page
 cp -R "$DATA/output" "$DATA/output_playing" 2>/dev/null || true
+kill $POLL
 kill $STANDIN; wait $STANDIN 2>/dev/null || true
 sleep 5
 curl -s -o "$DATA/gone.json" $URL/
@@ -133,6 +146,12 @@ check(files.get("song_details.txt") == b"Playground Kings - Self Trap"
 
 gone = json.loads(text("gone.json") or "{}")
 check(gone.get("currentState") == 0, f"state 0 after the game is gone (got {gone.get('currentState')})")
+check(((gone.get("memoryReadout") or {}).get("noteData") or {}).get("TotalNotesHit", 0) >= nd.get("TotalNotesHit", 1),
+      "the song's last noteData after it")
+states = [l.split() for l in (text("states.txt") or "").splitlines()]
+print("  states", " ".join(dict.fromkeys(l[0] for l in states)))
+check(any(l[0] == "4" for l in states) and all(l[1:] == ["SelfTrap", "SelfTrap"] for l in states if l[0] in ("3", "4")),
+      "starting and playing only with the song's details")
 for p in problems: print("  FAIL:", p)
 print("FAIL" if problems else "PASS")
 sys.exit(1 if problems else 0)
