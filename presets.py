@@ -139,4 +139,5 @@ class Presets:
                 return r["preset"], "name" + gear
             if "any" not in r and "name" not in r:
                 return r["preset"], "tags " + "+".join(sorted(tags)) + gear
-        return d.get("default"), "default"
+        default = d.get("default")
+        return (default if isinstance(default, str) else "Clean"), "default"  # as Presets.swift

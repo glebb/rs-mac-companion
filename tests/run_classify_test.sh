@@ -59,6 +59,10 @@ lead = p.get("", "", "x", ["LEAD"], artist="AC/DC")
 check(lead[1].endswith(", artist AC/DC"), f"your AC/DC Lead entry wins: {lead}")
 plain = Presets(ai_path=None).get("", "", "riff_dist", [], artist="AC/DC")
 check(p.category(plain[0]) == "Heavy", f"without the suggestions AC/DC stays Heavy: {plain}")
+nodefault = Presets(ai_path=None)
+nodefault.data = {"rules": []}
+check(nodefault.get("x_rhythm", "A", "riff", [], artist="AC/DC") == ("Clean", "default"),
+      "no \"default\" in presets.json: Clean, as in the app")
 print(f"suggested styles: {s['song_styles']}")
 sys.exit(1 if fail else 0)
 PY
