@@ -345,6 +345,7 @@ library and the app honour it too, which the tests use):
 | `tones_index.jsonl`, `index_cache.json` | external mode | song index and its cache |
 | `rstone.log` | external mode | diagnostic log |
 | `tone_catalog.csv`, `songs.csv` | developer tools | catalog from `make_catalog.py` |
+| `ai_classified.json`, `ai_suggestions.json` | developer tools | the model's answers and suggestions from `classify_songs.py` |
 
 The game folder defaults to Steam's location; the external mode and the tools take `RS_GAME_DIR`,
 RS Companion its Settings.
@@ -363,6 +364,7 @@ Build with `./build.sh` (Command Line Tools only): `build/rsprobe`, `build/rstoo
 | Tool | |
 |---|---|
 | `python3 make_catalog.py` | `tone_catalog.csv` (every tone: tags, preset, how it matched, amp, pedals, drive 0–1 with clean / crunch / heavy, its delay, reverb and modulation, how many songs use it) and `songs.csv` (every arrangement with its tuning, tempo, the song's heaviness, its tones, presets and drives), from the song index; the scores come from `rig.py` |
+| `python3 classify_songs.py [--limit N] [--apply]` | experimental: asks an OpenAI model (`gpt-6-luna` by default) each song's style and whether its distorted tones sound like crunch or heavy on the record, and writes `ai_suggestions.json`: `song_styles` and `artists` entries where it disagrees with the rules, with a reason per song. `--apply` copies them into `presets.json` without changing entries you already have. Sends artist names and song titles to the OpenAI API; needs `pip install openai` and `OPENAI_API_KEY` |
 | `build/rstool toc\|tones <archive.psarc>` | list an archive's entries with their byte ranges / print its arrangements' tone data as JSON |
 | `python3 tools/event_listener.py` | print the events the game's library sends (quit RS Companion first: only one can listen) |
 | `build/midi_monitor` | print MIDI from the "Rocksmith Companion" source (`swiftc -O tools/midi_monitor.swift -o build/midi_monitor`) |
@@ -380,6 +382,7 @@ with it):
 ./tests/run_song_tones_test.sh # song tone messages: the SysEx at song load, then its Program Changes (~50 s; quit RS Companion first)
 ./tests/run_overlay_test.sh   # the stream overlays: RockSniffer's API, addon pages, OBS files (~35 s; quit RS Companion first)
 ./tests/run_standin_test.sh   # rstone.py + rsprobe in a stand-in game (~70 s)
+./tests/run_classify_test.sh  # classify_songs.py with a stand-in for the API, on some songs from your index (seconds)
 ```
 
 The stand-ins imitate what the game does: file reads, arrangement objects, a song timer, decoy
@@ -405,7 +408,7 @@ Documentation: [how it works](docs/how-it-works.md), [the game's memory](docs/ga
 | `native/rsprobe.c` | external mode | the memory reader |
 | `native/rstool.c`, `index_songs.py` | external mode | song file reader front end and the song index |
 | `presets.py`, `paths.py`, `game_profile.json` | external mode | mapping, where things live, values tied to one game build |
-| `make_catalog.py`, `rig.py`, `tools/`, `tests/` | developer tools | see above; `rig.py` scores what a tone's gear does |
+| `make_catalog.py`, `classify_songs.py`, `rig.py`, `tools/`, `tests/` | developer tools | see above; `rig.py` scores what a tone's gear does |
 | `docs/` | | documentation |
 
 ## Dependencies
