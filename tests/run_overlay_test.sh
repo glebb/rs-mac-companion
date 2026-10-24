@@ -9,6 +9,8 @@
 #     phrase iterations and measures, vocals, album art as JPEG, the archive's MD5), CORS headers,
 #   - /addons/ index, generated config.js with the port, files, no way out of the folder,
 #   - /storage PUT and GET (and "null" for a missing key),
+#   - refused: another Host (DNS rebinding), a PUT from another website's page, a negative
+#     Content-Length (400, and the app keeps serving),
 #   - the OBS text files and album_cover.jpeg in DATA_DIR/output,
 #   - state 0 (no game) a few seconds after the game is gone.
 # Uses a temporary data folder, so your own data and a running RS Companion are not touched
@@ -46,6 +48,15 @@ curl -s -o /dev/null -w '%{http_code}' $URL/addons/timeline/nothing.js >> "$DATA
 curl -s -X PUT --data '{"best": 42}' $URL/storage/test_addon/scores > /dev/null
 curl -s -o "$DATA/stored.txt" $URL/storage/test_addon/scores
 curl -s -o "$DATA/missing.txt" $URL/storage/test_addon/nothing
+curl -s -o /dev/null -w '%{http_code} ' -H 'Host: evil.example:19938' $URL/ > "$DATA/refused.txt"
+curl -s -o /dev/null -w '%{http_code} ' -X PUT -H 'Origin: https://evil.example' --data '"evil"' \
+  $URL/storage/test_addon/scores >> "$DATA/refused.txt"
+curl -s -o /dev/null -w '%{http_code} ' -X PUT -H "Origin: http://localhost:19938" --data '"mine"' \
+  $URL/storage/test_addon/page >> "$DATA/refused.txt"
+printf 'PUT /storage/test_addon/neg HTTP/1.1\r\nHost: 127.0.0.1:19938\r\nContent-Length: -1\r\n\r\n' \
+  | nc -w 2 127.0.0.1 19938 | head -1 | tr -d '\r' > "$DATA/negative.txt"
+curl -s -o "$DATA/stored_after.txt" $URL/storage/test_addon/scores
+curl -s -o "$DATA/page.txt" $URL/storage/test_addon/page
 cp -R "$DATA/output" "$DATA/output_playing" 2>/dev/null || true
 kill $STANDIN; wait $STANDIN 2>/dev/null || true
 sleep 5
@@ -106,6 +117,11 @@ check("var port = 19938;" in (text("config.js") or ""), "/addons/config.js with 
 print("  codes", text("codes.txt"))
 check(text("codes.txt") == "200 404 404", "/addons files: found, no way out, missing")
 check(text("stored.txt") == '{"best": 42}' and text("missing.txt") == "null", "/storage round trip")
+print("  refused", text("refused.txt"), "negative length:", text("negative.txt"))
+check(text("refused.txt") == "403 403 200 " and text("page.txt") == '"mine"',
+      "403 for another Host and another website's PUT; the addons' own origin may PUT")
+check(text("stored_after.txt") == '{"best": 42}', "the refused PUT wrote nothing")
+check((text("negative.txt") or "").strip() == "HTTP/1.1 400 Bad Request", "negative Content-Length: 400")
 
 out = os.path.join(data, "output_playing")
 files = {f: open(os.path.join(out, f), "rb").read() for f in os.listdir(out)} if os.path.isdir(out) else {}

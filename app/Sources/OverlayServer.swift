@@ -7,7 +7,9 @@ import Network
 ///   GET /addons/...             the bundled addons; a folder gives the index page, and
 ///                               addons/config.js is generated with this port
 ///   OPTIONS                     empty
-/// Every response allows any origin and method, and the connection closes after it.
+/// Every response allows any origin and method, and the connection closes after it. Requests whose
+/// Host isn't 127.0.0.1 or localhost with this port get 403 (DNS rebinding), and so do PUTs from
+/// a web page other than the addons' own.
 final class OverlayServer {
     let port: Int
     private let addonsDir: String?
@@ -73,12 +75,8 @@ final class OverlayServer {
             if let data { buf += data }
             if let end = buf.range(of: Data("\r\n\r\n".utf8)) {
                 let head = String(decoding: buf[..<end.lowerBound], as: UTF8.self)
-                let length = head.split(separator: "\r\n").lazy
-                    .compactMap { line -> Int? in
-                        let p = line.split(separator: ":", maxSplits: 1)
-                        return p.count == 2 && p[0].lowercased() == "content-length"
-                            ? Int(p[1].trimmingCharacters(in: .whitespaces)) : nil
-                    }.first ?? 0
+                let length = Self.header("content-length", in: head).map { Int($0) ?? -1 } ?? 0
+                guard length >= 0 else { return self.respond(c, 400, "Bad Request", "text/html") }
                 let body = buf[end.upperBound...]
                 if body.count >= length || done || error != nil {
                     return self.handle(c, head: head, body: Data(body.prefix(length)))
@@ -98,12 +96,22 @@ final class OverlayServer {
         if let q = path.firstIndex(of: "?") { path = String(path[..<q]) }
         path = path.removingPercentEncoding ?? path
 
+        // A website that points its own name at 127.0.0.1 (DNS rebinding) sends that name as Host.
+        if let host = Self.header("host", in: head), !localNames.contains(host.lowercased()) {
+            return respond(c, 403, "Forbidden", "text/html")
+        }
         if method == "OPTIONS" { return respond(c, 200, "", "text/html") }
         if path.hasPrefix("/storage/") {
             let p = path.dropFirst(9).split(separator: "/").map(String.init)
             guard p.count == 2, p.allSatisfy(Self.safeName) else { return respond(c, 400, "Bad Request", "text/html") }
             let file = storageDir + "/" + p[0] + "/" + p[1] + ".json"
             if method == "PUT" {
+                // Writes only from the addon pages (served here, or opened as files: "null") and from
+                // programs (no Origin); browsers send any other website's origin.
+                if let origin = Self.header("origin", in: head), origin != "null",
+                   !localNames.contains(where: { origin.lowercased() == "http://" + $0 }) {
+                    return respond(c, 403, "Forbidden", "text/html")
+                }
                 try? FileManager.default.createDirectory(atPath: storageDir + "/" + p[0], withIntermediateDirectories: true)
                 let value = String(decoding: body, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
                 try? value.write(toFile: file, atomically: true, encoding: .utf8)
@@ -118,6 +126,17 @@ final class OverlayServer {
             let data = MainActor.assumeIsolated { self.state() }
             self.queue.async { self.send(c, 200, "OK", data, "text/json") }
         }
+    }
+
+    /// The names this server is reached by, with the port, as in Host headers.
+    private var localNames: [String] { ["127.0.0.1:\(port)", "localhost:\(port)"] }
+
+    /// The value of a request header (name lowercased), or nil.
+    private static func header(_ name: String, in head: String) -> String? {
+        head.split(separator: "\r\n").dropFirst().lazy.compactMap { line -> String? in
+            let p = line.split(separator: ":", maxSplits: 1)
+            return p.count == 2 && p[0].lowercased() == name ? p[1].trimmingCharacters(in: .whitespaces) : nil
+        }.first
     }
 
     private static func safeName(_ s: String) -> Bool {

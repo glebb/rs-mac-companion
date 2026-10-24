@@ -167,7 +167,9 @@ code ([credits](../README.md#credits)). With `overlay_enabled`:
 - `OverlayServer.swift` listens on `127.0.0.1:<overlay_port>` only. `GET /` returns RockSniffer's
   `{success, currentState, memoryReadout, songDetails, Version}`; `GET`/`PUT /storage/<addon>/<key>`
   keeps addon values in `DATA_DIR/addon_storage`; `GET /addons/…` serves the addons (a folder: the
-  index page; `config.js` is generated with the port). Every response allows any origin.
+  index page; `config.js` is generated with the port). Every response allows any origin, but only
+  requests to `127.0.0.1` or `localhost` (by Host header) are answered, against DNS rebinding, and a
+  `PUT` from a web page needs the addons' own origin (or `null`, a page opened as a file).
 - `Overlay.swift` keeps the state from the events. `memoryReadout`: `songTimer`, `songID`
   (SongKey), `arrangementID` (the selected arrangement's manifest `PersistentID`), `mode` (1 Learn
   a Song, 2 Score Attack), `noteData` (from `stats` events, in RockSniffer's field names; accuracy =
