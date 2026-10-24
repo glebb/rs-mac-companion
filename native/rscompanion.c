@@ -923,20 +923,46 @@ static void *searcher(void *arg) {
 // ================================================================ banner watch
 
 // New copies of "<Song> - " in memory are the game's tone banners. The addresses already seen
-// go in an open-addressing table; at half full it starts over with a new first scan (otherwise a
-// full table would make the lookup loop forever).
+// go in an open-addressing table; at half full it starts over with a new first scan (a full table
+// would make the lookup loop forever).
 #ifndef SEEN_CAP
 #define SEEN_CAP (1 << 16)
 #endif
 _Static_assert(SEEN_CAP >= 64 && (SEEN_CAP & (SEEN_CAP - 1)) == 0, "SEEN_CAP: a power of two");
+
+// Banner scan: every copy of the pattern goes in the seen table as the scan finds it, and only
+// copies not seen before go in bs->hits (up to 300 per scan; none in a first scan, which notes
+// what is there already). So neither the first scan nor a later one is limited to the first
+// 300 copies in memory: an old copy is never taken for a new banner, nor a new banner missed.
+typedef struct { banner_search *bs; uint64_t *seen; unsigned nseen; int first; } banner_scan;
+
+static int find_new_banners(uint64_t base, const uint8_t *d, size_t len, void *ctx) {
+    banner_scan *b = ctx;
+    banner_search *bs = b->bs;
+    const uint8_t *p = d, *end = d + len;
+    while (p < end && (p = memmem(p, (size_t)(end - p), bs->pat, bs->plen))) {
+        if (b->nseen >= SEEN_CAP - 1) return 0;  // a free slot ends every lookup; starts over next round
+        uint64_t a = base + (uint64_t)(p - d);
+        size_t h = (size_t)((a >> 3) * 0x9E3779B97F4A7C15ULL) & (SEEN_CAP - 1);
+        while (b->seen[h] && b->seen[h] != a) h = (h + 1) & (SEEN_CAP - 1);
+        if (!b->seen[h]) {
+            b->seen[h] = a;
+            b->nseen++;
+            if (!b->first && bs->n < 300) bs->hits[bs->n++] = a;
+        }
+        p++;
+    }
+    return 1;
+}
 
 static void *banner_watch(void *arg) {
     (void)arg;
     uint8_t *buf = own_alloc(CHUNK);
     uint64_t *seen = own_alloc(SEEN_CAP * 8);
     banner_search *bs = own_alloc(sizeof *bs);  // the pattern lives in our tagged memory
-    unsigned gen = 0, count = 0, nseen = 0;
-    int first = 1, nchanges = 0;
+    banner_scan b = {bs, seen, 0, 1};
+    unsigned gen = 0, count = 0;
+    int nchanges = 0;
     static float changes[MAX_CHANGES];  // change times of the arrangement (in our image: not scanned)
     double last_scan = 0;
     for (;;) {
@@ -958,19 +984,19 @@ static void *banner_watch(void *arg) {
         if (arr_gen != gen) {
             gen = arr_gen;
             memset(seen, 0, SEEN_CAP * 8);
-            first = 1;
+            b.first = 1;
+            b.nseen = 0;
             count = 0;
-            nseen = 0;
         }
-        if (nseen >= SEEN_CAP / 2) {
-            logline("banner watch: %u addresses seen; starting over", nseen);
+        if (b.nseen >= SEEN_CAP / 2) {
+            logline("banner watch: %u addresses seen; starting over", b.nseen);
             memset(seen, 0, SEEN_CAP * 8);
-            first = 1;
-            nseen = 0;
+            b.first = 1;
+            b.nseen = 0;
         }
         // With a confirmed timer, banners only double-check it: scan just after each tone change
         // (when the game creates the banner), plus every 15 s in case the timer is wrong.
-        if (confirmed && !first) {
+        if (confirmed && !b.first) {
             double v, t = now_s();
             int due = t - last_scan >= 15;
             if (!due && read_timer(timer, &v))
@@ -985,26 +1011,13 @@ static void *banner_watch(void *arg) {
         // narrow scans never mistake an old copy for a new banner. Then only the learned tags,
         // with a full scan every 10th time (about every 5 s) until the timer is confirmed.
         tagset tags;
-        const tagset *only = first || (!confirmed && count % 10 == 9) ? NULL : tags_for(TAGS_BANNER, &tags);
+        const tagset *only = b.first || (!confirmed && count % 10 == 9) ? NULL : tags_for(TAGS_BANNER, &tags);
         count++;
         bs->n = 0;
-        scan(buf, only, find_text, bs);
+        scan(buf, only, find_new_banners, &b);
         double t = now_s();
-        for (int i = 0; i < bs->n && nseen < SEEN_CAP - 1; i++) {  // a free slot ends every lookup
+        for (int i = 0; i < bs->n; i++) {  // copies not seen before
             uint64_t a = bs->hits[i];
-            size_t h = (size_t)((a >> 3) * 0x9E3779B97F4A7C15ULL) & (SEEN_CAP - 1);
-            int known = 0;
-            while (seen[h]) {
-                if (seen[h] == a) {
-                    known = 1;
-                    break;
-                }
-                h = (h + 1) & (SEEN_CAP - 1);
-            }
-            if (known) continue;
-            seen[h] = a;
-            nseen++;
-            if (first) continue;  // what is there already is old
             char text[128] = "";
             if (!safe_read(a, text, 96)) continue;
             text[96] = 0;
@@ -1019,7 +1032,7 @@ static void *banner_watch(void *arg) {
             logline("banner seen: \"%s\"", text + bs->plen);
             tags_learn(TAGS_BANNER, a);
         }
-        first = 0;
+        b.first = 0;
         usleep(500000);
     }
     return NULL;
