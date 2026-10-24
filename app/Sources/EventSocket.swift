@@ -96,24 +96,37 @@ final class EventSocket {
         let bound = withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
-        guard bound == 0 else { return "bind \(path): \(String(cString: strerror(errno)))" }
+        guard bound == 0 else {
+            let error = "bind \(path): \(String(cString: strerror(errno)))"
+            close(fd)
+            fd = -1
+            return error
+        }
         _ = fcntl(fd, F_SETFL, O_NONBLOCK)
 
-        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-        source.setEventHandler { [weak self] in self?.drain() }
+        // The source owns the descriptor from here: it is closed only once the source is cancelled,
+        // so a drain still running on the queue never reads a closed (or reused) descriptor.
+        let owned = fd
+        let source = DispatchSource.makeReadSource(fileDescriptor: owned, queue: queue)
+        source.setEventHandler { [weak self] in self?.drain(owned) }
+        source.setCancelHandler { close(owned) }
         source.resume()
         self.source = source
         return nil
     }
 
     func stop() {
-        source?.cancel()
-        if fd >= 0 { close(fd) }
+        if let source {
+            source.cancel()  // closes the descriptor
+        } else if fd >= 0 {
+            close(fd)
+        }
+        source = nil
         fd = -1
         unlink(path)
     }
 
-    private func drain() {
+    private func drain(_ fd: Int32) {
         var buffer = [UInt8](repeating: 0, count: 65536)
         while true {
             let n = recv(fd, &buffer, buffer.count, 0)
