@@ -4,8 +4,9 @@
 # heavy, Eagles a low-confidence guess). Uses the Bon Jovi, AC/DC, Slayer and Eagles songs from
 # your song index (run index_songs.py first) in a temporary data folder. Expected: the model is
 # asked once per batch with a JSON schema, Bon Jovi and AC/DC get Heavy -> Crunch, Slayer gets no
-# Heavy -> Crunch, nothing is suggested for the Eagles, a second run asks nothing, and --apply
-# keeps an artist entry that is already in presets.json.
+# Heavy -> Crunch, nothing is suggested for the Eagles, a second run asks nothing and suggests the
+# same, presets.json is not changed, and presets.py uses the suggestions (reason "AI") after your
+# own artists entry.
 set -e
 cd "$(dirname "$0")/.."
 INDEX="${RS_COMPANION_DATA:-$HOME/Library/Application Support/rs-mac-companion}/tones_index.jsonl"
@@ -16,16 +17,19 @@ grep -E '"artist": "(Bon Jovi|AC/DC|Slayer|Eagles)"' "$INDEX" > "$DATA/tones_ind
 python3 - "$DATA/presets.json" <<'PY'
 import json, sys
 d = json.load(open("presets.default.json"))
-d["artists"] = {"AC/DC": {"Lead": "Crunch"}}  # yours: --apply must keep it
+d["artists"] = {"AC/DC": {"Lead": "Crunch"}}  # yours: wins over the suggestions
 json.dump(d, open(sys.argv[1], "w"))
 PY
 run() { RS_COMPANION_DATA="$DATA" STUB_LOG="$DATA/requests.jsonl" OPENAI_API_KEY=stub PYTHONPATH=tests/stub_openai python3 classify_songs.py --batch 40 "$@"; }
 
+cp "$DATA/presets.json" "$DATA/presets.before"
 run
 REQUESTS=$(wc -l < "$DATA/requests.jsonl")
-run --apply
-python3 - "$DATA" "$REQUESTS" <<'PY'
+cp "$DATA/ai_suggestions.json" "$DATA/suggestions.first"
+run
+RS_COMPANION_DATA="$DATA" python3 - "$DATA" "$REQUESTS" <<'PY'
 import json, sys
+sys.path.insert(0, ".")
 data, first = sys.argv[1], int(sys.argv[2])
 fail = []
 def check(ok, what):
@@ -44,9 +48,16 @@ check(s["artists"].get("AC/DC", {}).get("Heavy") == "Crunch", f"AC/DC Heavy -> C
 check("Heavy" not in s["artists"].get("Slayer", {}), f"Slayer keeps Heavy: {s['artists'].get('Slayer')}")
 check("Eagles" not in s["artists"] and "Eagles" not in s["song_styles"]
       and not any(r["artist"] == "Eagles" for r in s["_songs"]), "low confidence (Eagles) suggests nothing")
-p = json.load(open(f"{data}/presets.json"))
-check(p["artists"]["AC/DC"] == {"Lead": "Crunch"}, "--apply keeps your AC/DC entry")
-check(p["artists"].get("Bon Jovi") == {"Heavy": "Crunch"}, "--apply adds Bon Jovi")
+check(json.load(open(f"{data}/suggestions.first")) == s, "second run suggests the same (rules compared without the AI)")
+check(open(f"{data}/presets.json").read() == open(f"{data}/presets.before").read(), "presets.json not changed")
+from presets import Presets
+p = Presets()
+hit = p.get("", "", "riff_dist", [], artist="AC/DC")
+check(p.category(hit[0]) == "Crunch" and hit[1].endswith(", AI"), f"AC/DC dist tone -> Crunch by AI: {hit}")
+lead = p.get("", "", "x", ["LEAD"], artist="AC/DC")
+check(lead[1].endswith(", artist AC/DC"), f"your AC/DC Lead entry wins: {lead}")
+plain = Presets(ai_path=None).get("", "", "riff_dist", [], artist="AC/DC")
+check(p.category(plain[0]) == "Heavy", f"without the suggestions AC/DC stays Heavy: {plain}")
 print(f"suggested styles: {s['song_styles']}")
 sys.exit(1 if fail else 0)
 PY

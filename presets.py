@@ -1,6 +1,8 @@
 """Tone -> preset mapping shared by rstone.py and make_catalog.py.
 
-The rules live in presets.json in the data folder (seeded from presets.default.json)."""
+The rules live in presets.json in the data folder (seeded from presets.default.json). An AI model's
+suggestions (classify_songs.py) live in ai_suggestions.json next to it, in the same format: its
+"artists" remaps count where presets.json's "artists" has none for that category, with reason "AI"."""
 import json
 import os
 import re
@@ -20,18 +22,30 @@ def amp_name(amp):
 
 
 class Presets:
-    def __init__(self, path=paths.PRESETS):
+    def __init__(self, path=paths.PRESETS, ai_path=paths.AI_SUGGESTIONS):
+        """ai_path None leaves out the AI suggestions: what the rules alone pick."""
         self.path, self.mtime, self.data = path, 0, {}
+        self.ai_path, self.ai_mtime, self.ai = ai_path, 0, {}
         self.reload()
 
     def reload(self):
-        """Re-read presets.json if it changed, so mappings can be tuned while playing."""
+        """Re-read presets.json and the AI suggestions if they changed, so mappings can be tuned
+        while playing."""
         try:
             m = os.path.getmtime(self.path)
             if m != self.mtime:
                 self.data, self.mtime = json.load(open(self.path)), m
         except (OSError, ValueError):
             pass
+        if self.ai_path:
+            try:
+                m = os.path.getmtime(self.ai_path)
+                if m != self.ai_mtime:
+                    self.ai, self.ai_mtime = json.load(open(self.ai_path)), m
+            except OSError:
+                self.ai, self.ai_mtime = {}, 0
+            except ValueError:
+                pass
 
     def category(self, preset):
         """The category (Clean, Crunch, Heavy, Lead) a preset name means."""
@@ -56,13 +70,14 @@ class Presets:
         if key.lower() in tones:
             return tones[key.lower()], "tone override"
         preset, why = self.rule(key, descriptors, amp, gain, drive)
-        artists = {k.strip().lower(): v for k, v in d.get("artists", {}).items()}
-        remap = artists.get((artist or "").strip().lower())
-        if isinstance(remap, dict):
-            remap = {k.lower(): v for k, v in remap.items()}
-            new = remap.get(preset.lower()) or remap.get(self.category(preset).lower())
-            if new:
-                return new, f"{why}, artist {artist.strip()}"
+        for source, label in ((d, f"artist {(artist or '').strip()}"), (self.ai, "AI")):
+            artists = {k.strip().lower(): v for k, v in source.get("artists", {}).items()}
+            remap = artists.get((artist or "").strip().lower())
+            if isinstance(remap, dict):
+                remap = {k.lower(): v for k, v in remap.items()}
+                new = remap.get(preset.lower()) or remap.get(self.category(preset).lower())
+                if new:
+                    return new, f"{why}, {label}"
         return preset, why
 
     def rule(self, key, descriptors, amp, gain, drive=None):

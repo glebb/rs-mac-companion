@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Experimental: ask an OpenAI model what each song in the index is (its style: Soft, Classic rock,
-Metal, ...) and whether its distorted tones should be Crunch or Heavy, and write the answers as
-suggestions for presets.json. Nothing in presets.json changes unless you pass --apply.
+Metal, ...) and whether its distorted tones should be Crunch or Heavy, and write the answers where
+they differ from the rules to ai_suggestions.json. RS Companion and presets.py read that file as a
+layer between the rules and your own entries in presets.json, which stays as it is.
 
 The model gets what the rules already know (tuning, tempo, heaviness, the style and categories the
 rules pick, the amps) plus the artist and title, and corrects the rules from what the records
@@ -12,20 +13,19 @@ Writes to the data folder (see paths.py):
   ai_classified.json   the model's answer per song key, so later runs only ask about new songs
   ai_suggestions.json  "song_styles" and "artists" entries in presets.json's format where the
                        model disagrees with the rules, plus "_songs": one row per disagreement
-                       with the model's reason, for review
---apply copies the suggestions into presets.json (backed up first) without changing an entry
-that is already there, so your own song_styles and artists always win.
+                       with the model's reason, for review. Your own song_styles and artists in
+                       presets.json win over these; delete the file to turn the suggestions off.
+The rules are compared without the current suggestions, so a run never mistakes them for the rules.
 
 Sends artist names, song titles and the numbers above to the OpenAI API. Needs the openai
 package (pip install openai) and an API key in OPENAI_API_KEY.
 
-Usage: classify_songs.py [--model ID] [--batch N] [--limit N] [--redo] [--apply]
+Usage: classify_songs.py [--model ID] [--batch N] [--limit N] [--redo]
 """
 import argparse
 import collections
 import json
 import os
-import shutil
 import sys
 import time
 
@@ -34,7 +34,6 @@ import rig
 from presets import Presets
 
 CLASSIFIED = os.path.join(paths.DATA_DIR, "ai_classified.json")
-SUGGESTIONS = os.path.join(paths.DATA_DIR, "ai_suggestions.json")
 DEFAULT_STYLES = [{"name": "Soft"}, {"name": "Classic rock", "from": 0.4}, {"name": "Metal", "from": 0.75}]
 SLOTS = ["Base", "A", "B", "C", "D"]
 
@@ -209,34 +208,16 @@ def suggest(songs, answers):
     return song_styles, artists, rows
 
 
-def apply(song_styles, artists):
-    """Copies suggestions into presets.json, keeping every entry already there."""
-    shutil.copy(paths.PRESETS, paths.PRESETS + ".bak-before-ai")
-    data = json.load(open(paths.PRESETS))
-    added = 0
-    for section, entries in (("song_styles", song_styles), ("artists", artists)):
-        have = {k.strip().lower() for k in data.setdefault(section, {})}
-        for k, v in entries.items():
-            if k.strip().lower() not in have:
-                data[section][k] = v
-                added += 1
-    with open(paths.PRESETS, "w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write("\n")
-    print(f"added {added} entries to {paths.PRESETS} (backup: presets.json.bak-before-ai)")
-
-
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--model", default="gpt-6-luna")
     p.add_argument("--batch", type=int, default=100, help="songs per request")
     p.add_argument("--limit", type=int, help="ask about at most this many new songs (to try it out)")
     p.add_argument("--redo", action="store_true", help="ask again about songs already answered")
-    p.add_argument("--apply", action="store_true", help="copy the suggestions into presets.json")
     args = p.parse_args()
 
     paths.ensure_data_dir()
-    presets = Presets()
+    presets = Presets(ai_path=None)  # the rules alone
     songs = songs_from_index(presets)
     answers = {} if args.redo or not os.path.exists(CLASSIFIED) else json.load(open(CLASSIFIED))
     todo = [s for k, s in sorted(songs.items()) if k not in answers][:args.limit]
@@ -259,17 +240,15 @@ def main():
                 json.dump(answers, f, indent=1, ensure_ascii=False, sort_keys=True)
 
     song_styles, artists, rows = suggest(songs, answers)
-    with open(SUGGESTIONS, "w") as f:
+    with open(paths.AI_SUGGESTIONS, "w") as f:
         json.dump({"_help": ["Suggestions from classify_songs.py where the model disagrees with the rules.",
-                             "song_styles and artists use presets.json's format; classify_songs.py --apply copies",
-                             "them there without changing entries you already have. _songs says why, per song."],
+                             "song_styles and artists use presets.json's format and count after your own entries",
+                             "there (reason 'AI'). _songs says why, per song. Delete this file to turn them off."],
                    "song_styles": song_styles, "artists": artists, "_songs": rows},
                   f, indent=2, ensure_ascii=False)
         f.write("\n")
     print(f"{len(answers)} of {len(songs)} songs answered; {len(song_styles)} style and {len(artists)} artist "
-          f"suggestions in {SUGGESTIONS}")
-    if args.apply:
-        apply(song_styles, artists)
+          f"suggestions in {paths.AI_SUGGESTIONS}")
 
 
 if __name__ == "__main__":

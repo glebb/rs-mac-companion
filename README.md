@@ -252,14 +252,18 @@ re-read it while running. First match wins:
 4. `default`
 
 Then `artists` can change what the rules gave for a whole band, e.g.
-`{"Bon Jovi": {"Heavy": "Crunch"}}` (overrides from 1 and 2 still win).
+`{"Bon Jovi": {"Heavy": "Crunch"}}` (overrides from 1 and 2 still win). Where `artists` has
+nothing for a band's category, the AI suggestions in `ai_suggestions.json` (from
+`classify_songs.py`, see [Developer tools](#developer-tools)) may change it the same way; delete
+that file to turn them off.
 
 RS Companion reads preset names as categories: Clean, Crunch, Heavy and Lead directly, others
 through `categories` (Distortion → Heavy, Acoustic → Clean, Bass → Clean, Bass Drive → Crunch).
 
 For song tone messages, `styles` labels each song by its heaviness (the last entry whose `from`
 the song reaches; Soft, Classic rock from 0.4, Metal from 0.75 by default), and `song_styles`
-sets the label for a song key or an artist, e.g. `{"AC/DC": "Classic rock"}`.
+sets the label for a song key or an artist, e.g. `{"AC/DC": "Classic rock"}`; after it, the
+`song_styles` in `ai_suggestions.json`.
 
 ### How tones are mapped
 
@@ -325,7 +329,7 @@ becomes Lead because the LEAD rule comes first.
   tone line ends with the preset and the reason, e.g.
   `→ Heavy (Distortion, tags DISTORTION, amp hg500 gain 88)`; the reason is `song override`,
   `tone override`, `tags ...`, `name` or `default`, with `, artist ...` added when `artists`
-  changed it.
+  changed it or `, AI` when the AI suggestions did (the window then shows "AI").
 
 ## Data folder
 
@@ -364,7 +368,7 @@ Build with `./build.sh` (Command Line Tools only): `build/rsprobe`, `build/rstoo
 | Tool | |
 |---|---|
 | `python3 make_catalog.py` | `tone_catalog.csv` (every tone: tags, preset, how it matched, amp, pedals, drive 0–1 with clean / crunch / heavy, its delay, reverb and modulation, how many songs use it) and `songs.csv` (every arrangement with its tuning, tempo, the song's heaviness, its tones, presets and drives), from the song index; the scores come from `rig.py` |
-| `python3 classify_songs.py [--limit N] [--apply]` | experimental: asks an OpenAI model (`gpt-6-luna` by default) each song's style and whether its distorted tones sound like crunch or heavy on the record, and writes `ai_suggestions.json`: `song_styles` and `artists` entries where it disagrees with the rules, with a reason per song. `--apply` copies them into `presets.json` without changing entries you already have. Sends artist names and song titles to the OpenAI API; needs `pip install openai` and `OPENAI_API_KEY` |
+| `python3 classify_songs.py [--limit N] [--redo]` | experimental: asks an OpenAI model (`gpt-6-luna` by default) each song's style and whether its distorted tones sound like crunch or heavy on the record, and writes `ai_suggestions.json`: `song_styles` and `artists` entries where it disagrees with the rules, with a reason per song. RS Companion and the external mode use them after your own entries in `presets.json`, which isn't changed; delete the file to turn them off. Sends artist names and song titles to the OpenAI API; needs `pip install openai` and `OPENAI_API_KEY` |
 | `build/rstool toc\|tones <archive.psarc>` | list an archive's entries with their byte ranges / print its arrangements' tone data as JSON |
 | `python3 tools/event_listener.py` | print the events the game's library sends (quit RS Companion first: only one can listen) |
 | `build/midi_monitor` | print MIDI from the "Rocksmith Companion" source (`swiftc -O tools/midi_monitor.swift -o build/midi_monitor`) |

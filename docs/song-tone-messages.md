@@ -116,7 +116,8 @@ Changes doesn't know about song tones.
 
 The label is the last entry in `styles` whose `from` the song's heaviness reaches. A song key
 or an artist listed in `song_styles` gets the label named there (the song key is checked
-first). Without these sections, the labels and thresholds are the ones shown above. The
+first), then one listed in the `song_styles` of `ai_suggestions.json`, the AI suggestions
+from `classify_songs.py`. Without these sections, the labels and thresholds are the ones shown above. The
 labels mean nothing to RS Companion itself: a receiver decides what to do with them. Stagehand
 uses the label as the name of a set of four tones (a bank).
 

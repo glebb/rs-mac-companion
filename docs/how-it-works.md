@@ -113,8 +113,9 @@ catch up, and tells it whether the game (with the dylib) is running.
 4. `default`
 
 then `artists` may change the result of 3 or 4 for the song's artist (`{"Bon Jovi": {"Heavy":
-"Crunch"}}`). The window counts that as automatic: the badge shows no pencil for it, and reset
-doesn't remove it.
+"Crunch"}}`), or where that has nothing for the category, the AI suggestions in
+`ai_suggestions.json` (`classify_songs.py`; reason `, AI`, shown as "AI"). The window counts both
+as automatic: the badge shows no pencil for them, and reset doesn't remove them.
 
 (Rule syntax, the default rules, their limits and how to tune them: see
 [How tones are mapped](../README.md#how-tones-are-mapped).)

@@ -14,6 +14,7 @@ DATA_DIR = os.environ.get("RS_COMPANION_DATA",
 INDEX = os.path.join(DATA_DIR, "tones_index.jsonl")
 INDEX_CACHE = os.path.join(DATA_DIR, "index_cache.json")
 PRESETS = os.path.join(DATA_DIR, "presets.json")
+AI_SUGGESTIONS = os.path.join(DATA_DIR, "ai_suggestions.json")  # from classify_songs.py
 LOG = os.path.join(DATA_DIR, "rstone.log")
 SONGS_CSV = os.path.join(DATA_DIR, "songs.csv")
 TONE_CATALOG_CSV = os.path.join(DATA_DIR, "tone_catalog.csv")

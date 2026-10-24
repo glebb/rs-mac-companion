@@ -7,7 +7,9 @@ import Foundation
 ///      gain knob ("gain": at least) and how distorted its rig is ("drive": clean, crunch or heavy)
 ///   4. default
 /// The result of 3 or 4 may then be changed by the song's artist ("artists": {"Bon Jovi":
-/// {"Heavy": "Crunch"}}). The resulting preset name is read as a category: a category name
+/// {"Heavy": "Crunch"}}), or where that has nothing for the category, by an AI model's suggestions
+/// in ai_suggestions.json next to it (classify_songs.py; same format, reason ", AI"; its
+/// "song_styles" likewise come after presets.json's). The resulting preset name is read as a category: a category name
 /// itself, or the "categories" section (e.g. "Distortion": "Heavy"). Overrides made in the app write
 /// category names into "songs" (for every part of the song that uses the tone). The file is
 /// re-read when it changes.
@@ -16,12 +18,16 @@ final class Presets {
         let preset: String
         let category: Category
         let reason: String      // "song override", "tone override", "tags ...", "name" or "default"
-                                // (then ", artist ..." if the artist section changed it)
+                                // (then ", artist ..." if the artist section changed it, ", AI"
+                                // if the AI suggestions did)
     }
 
     let path: String
     private var data: [String: Any] = [:]
     private var modified: Date?
+    private let aiPath: String
+    private var ai: [String: Any] = [:]
+    private var aiModified: Date?
 
     /// Preset names used before categories existed, for files without a "categories" section.
     private static let builtinCategories: [String: Category] = [
@@ -30,6 +36,7 @@ final class Presets {
 
     init(path: String, defaults: URL?) {
         self.path = path
+        aiPath = (path as NSString).deletingLastPathComponent + "/ai_suggestions.json"
         if !FileManager.default.fileExists(atPath: path), let defaults {
             try? FileManager.default.copyItem(at: defaults, to: URL(fileURLWithPath: path))
         }
@@ -72,16 +79,29 @@ final class Presets {
             + (backup as NSString).lastPathComponent + ")"
     }
 
-    /// Re-reads the file if it changed. Returns true if it did.
+    /// Re-reads presets.json and the AI suggestions if they changed. Returns true if either did.
     @discardableResult
     func reload() -> Bool {
+        let mine = Self.read(path, since: &modified).map { data = $0 } != nil
+        var ai: [String: Any]? = nil
+        let date = (try? FileManager.default.attributesOfItem(atPath: aiPath))?[.modificationDate] as? Date
+        if date == nil, aiModified != nil {  // removed: no suggestions
+            aiModified = nil
+            ai = [:]
+        } else {
+            ai = Self.read(aiPath, since: &aiModified)
+        }
+        if let ai { self.ai = ai }
+        return mine || ai != nil
+    }
+
+    /// The JSON object in a file if it changed since `modified` (then updated), else nil.
+    private static func read(_ path: String, since modified: inout Date?) -> [String: Any]? {
         let date = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
-        guard date != modified else { return false }
+        guard date != modified else { return nil }
         modified = date
-        guard let raw = FileManager.default.contents(atPath: path),
-              let json = try? JSONSerialization.jsonObject(with: raw) as? [String: Any] else { return false }
-        data = json
-        return true
+        guard let raw = FileManager.default.contents(atPath: path) else { return nil }
+        return try? JSONSerialization.jsonObject(with: raw) as? [String: Any]
     }
 
     /// The tone to map: its key and tags, and if known its amp, gain knob (0-100) and drive (0-1,
@@ -110,13 +130,14 @@ final class Presets {
         }
         let (preset, reason) = rule(tone)
         let name = artist.trimmingCharacters(in: .whitespaces)
-        if let remap = (data["artists"] as? [String: Any])?
-            .first(where: { $0.key.trimmingCharacters(in: .whitespaces).lowercased() == name.lowercased() })?
-            .value as? [String: Any] {
+        for (source, label) in [(data, "artist \(name)"), (ai, "AI")] {
+            guard let remap = (source["artists"] as? [String: Any])?
+                .first(where: { $0.key.trimmingCharacters(in: .whitespaces).lowercased() == name.lowercased() })?
+                .value as? [String: Any] else { continue }
             let wanted = [preset.lowercased(), category(of: preset).name.lowercased()]
             for w in wanted {
                 if let p = remap.first(where: { $0.key.lowercased() == w })?.value as? String {
-                    return result(p, "\(reason), artist \(name)")
+                    return result(p, "\(reason), \(label)")
                 }
             }
         }
@@ -167,23 +188,26 @@ final class Presets {
     }
 
     /// The style label of a song, for song tone messages: "song_styles" names one for a song key
-    /// or an artist (song key first); otherwise the last of "styles" whose "from" the song's
-    /// heaviness reaches. Without a "styles" section: Soft, Classic rock (0.4), Metal (0.75).
+    /// or an artist (song key first), then the AI suggestions' "song_styles" the same way;
+    /// otherwise the last of "styles" whose "from" the song's heaviness reaches. Without a "styles" section: Soft, Classic rock (0.4), Metal (0.75).
     /// (Read too: "banks"/"song_banks" and "rigs"/"song_rigs", what styles were called before.)
     func style(heaviness: Double?, artist: String, songKey: String) -> String {
-        let named = songStyles.reduce(into: [String: String]()) {
-            if let v = $1.value as? String { $0[$1.key.trimmingCharacters(in: .whitespaces).lowercased()] = v }
-        }
-        if let r = named[songKey.lowercased()] ?? named[artist.trimmingCharacters(in: .whitespaces).lowercased()] {
-            return r
+        for source in [songStyles, ai["song_styles"] as? [String: Any] ?? [:]] {
+            let named = source.reduce(into: [String: String]()) {
+                if let v = $1.value as? String { $0[$1.key.trimmingCharacters(in: .whitespaces).lowercased()] = v }
+            }
+            if let r = named[songKey.lowercased()] ?? named[artist.trimmingCharacters(in: .whitespaces).lowercased()] {
+                return r
+            }
         }
         let h = heaviness ?? 0
         return styles.last { h >= $0.from }?.name ?? styles[0].name
     }
 
-    /// Every style a song may get: "styles", then the ones only "song_styles" names.
+    /// Every style a song may get: "styles", then the ones only "song_styles" (or the AI's) names.
     var styleNames: [String] {
-        let named = songStyles.sorted { $0.key < $1.key }.compactMap { $0.value as? String }
+        let named = (songStyles.sorted { $0.key < $1.key } + (ai["song_styles"] as? [String: Any] ?? [:]).sorted { $0.key < $1.key })
+            .compactMap { $0.value as? String }
         var names: [String] = []
         for name in styles.map(\.name) + named where !names.contains(where: { $0.lowercased() == name.lowercased() }) {
             names.append(name)

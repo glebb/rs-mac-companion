@@ -189,6 +189,7 @@ struct CompanionView: View {
 
     private func reasonLabel(_ row: ToneRow) -> String {
         if row.overridden { return "changed · auto: \(row.automatic.name)" }
+        if row.reason.hasSuffix(", AI") { return "AI" }
         switch row.reason {
         case "default": return "default"
         case "name": return "by name"
