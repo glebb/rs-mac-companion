@@ -77,6 +77,15 @@ echo "6. no game"
 check "status: not found" '[ "$(RS_COMPANION_DATA="$T/data" "$APPBIN" --game-status "$T/nothing")" = "Rocksmith not found" ]'
 check "install fails cleanly" '! RS_COMPANION_DATA="$T/data" "$APPBIN" --install-game "$T/nothing" > /dev/null'
 
+echo "6b. a damaged executable is an error, not a crash"
+fresh
+printf '\312\376\272\276\000\000\020\000' > "$M/Rocksmith2014"  # fat header claiming 4096 architectures
+head -c 24 /dev/zero >> "$M/Rocksmith2014"
+check "fat header past the end: status reports it" 'run --game-status | grep -q "^Cannot read the game executable"'
+check "fat header past the end: install fails cleanly" '(run --install-game > /dev/null 2>&1; [ $? = 1 ])'
+head -c 4000 "$T/original" > "$M/Rocksmith2014"
+check "truncated executable: status reports it" 'run --game-status | grep -q "^Cannot read the game executable"'
+
 echo "7. finding the game in Steam's libraries"
 S="$T/steam"
 find_game() { RS_STEAM_DIR="$S" "$APPBIN" --find-game; }

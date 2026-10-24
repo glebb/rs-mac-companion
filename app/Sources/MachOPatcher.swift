@@ -35,8 +35,11 @@ struct MachOPatcher {
         func be32(_ o: Int) -> UInt32 { data.withUnsafeBytes { UInt32(bigEndian: $0.loadUnaligned(fromByteOffset: o, as: UInt32.self)) } }
         guard data.count >= 32 else { throw Failure.notMachO }
         if be32(0) == Self.fatMagic {
+            // fat_arch entries are 20 bytes after the 8-byte header; all of them must be in the file.
+            let count = Int(be32(4))
+            guard 8 + count * 20 <= data.count else { throw Failure.notMachO }
             var found: Int?
-            for i in 0..<Int(be32(4)) where Int32(bitPattern: be32(8 + i * 20)) == Self.x86_64 {
+            for i in 0..<count where Int32(bitPattern: be32(8 + i * 20)) == Self.x86_64 {
                 found = Int(be32(8 + i * 20 + 8))
             }
             guard let found else { throw Failure.noX86Slice }
