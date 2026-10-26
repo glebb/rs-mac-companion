@@ -12,6 +12,11 @@ new executable (replacing the old `Rocksmith2014.orig`) and patches it. Also re-
 patch if you use custom songs (a separate load command for `libRSBypass.dylib`; the order of the
 two doesn't matter).
 
+**RS Re-ARMed was rebuilt or reinstalled**: its installer replaces the app, so the same message
+appears: quit the game and click **Install** (it signs the app again). The values below are the
+original game's, which RS Re-ARMed keeps; the dylib log says `RS Re-ARMed: game image slide …` once
+the game has loaded its image.
+
 **The game itself changed** (detection stops working although the dylib loads): the values are the
 same as below, but the dylib has its own copy of them as `#define`s at the top of
 [native/rscompanion.c](../native/rscompanion.c) (`IMAGE_BASE`, `ARRANGEMENT_VTABLE`, `ARR_NAME`, and

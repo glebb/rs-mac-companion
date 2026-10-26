@@ -6,6 +6,8 @@ import Foundation
 /// it, and tells which state the game is in.
 struct GameInstaller {
     static let defaultGameDir = NSHomeDirectory() + "/Library/Application Support/Steam/steamapps/common/Rocksmith2014"
+    /// RS Re-ARMed (the native arm64 port) runs the game from a mirror of the Steam folder here.
+    static let reArmedGameDir = NSHomeDirectory() + "/Library/Application Support/RS Re-ARMed/game"
     static let steamAppID = "221680"
     static let dylibName = "librscompanion.dylib"
     static let loadPath = "@executable_path/" + dylibName
@@ -46,9 +48,10 @@ struct GameInstaller {
 
     private static var found: String?
 
-    /// Where Steam installed the game: every Steam library (libraries on drives that aren't
-    /// connected are skipped), then /Applications. Steam's default folder if it's nowhere.
-    /// Remembered until that folder goes away.
+    /// RS Re-ARMed's game if it's installed (on Apple Silicon it's the one to play), else where
+    /// Steam installed the game: every Steam library (libraries on drives that aren't connected are
+    /// skipped), then /Applications. Steam's default folder if it's nowhere. Remembered until that
+    /// folder goes away.
     static func steamGameDir() -> String {
         if let found, isGameDir(found) { return found }
         found = findGame()
@@ -68,8 +71,9 @@ struct GameInstaller {
     }
 
     private static func findGame() -> String? {
-        let steam = ProcessInfo.processInfo.environment["RS_STEAM_DIR"]  // for the tests
-            ?? NSHomeDirectory() + "/Library/Application Support/Steam"
+        let env = ProcessInfo.processInfo.environment
+        if env["RS_STEAM_DIR"] == nil, isGameDir(reArmedGameDir) { return reArmedGameDir }  // not in the tests
+        let steam = env["RS_STEAM_DIR"] ?? NSHomeDirectory() + "/Library/Application Support/Steam"
         var libraries = [steam]
         for list in ["steamapps/libraryfolders.vdf", "config/libraryfolders.vdf"] {
             if let text = try? String(contentsOfFile: steam + "/" + list, encoding: .utf8) {
@@ -103,7 +107,17 @@ struct GameInstaller {
     var macOSDir: String { gameDir + "/Rocksmith2014.app/Contents/MacOS" }
     var executable: String { macOSDir + "/Rocksmith2014" }
     var installedDylib: String { macOSDir + "/" + Self.dylibName }
-    var backup: String { executable + ".orig" }
+    /// The executable as it was without the companion. RS Re-ARMed's goes next to the app: a
+    /// Mach-O file inside the app would count as part of its signed code.
+    var backup: String { isArm64 ? gameDir + "/Rocksmith2014.orig" : executable + ".orig" }
+
+    /// The executable is a thin arm64 one (RS Re-ARMed).
+    private var isArm64: Bool {
+        guard let f = FileHandle(forReadingAtPath: executable) else { return false }
+        defer { try? f.close() }
+        let h = f.readData(ofLength: 8)
+        return h.count == 8 && h.withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) } == 0x0100_000C_FEED_FACF
+    }
 
     static func isOurs(_ path: String) -> Bool {
         let name = (path as NSString).lastPathComponent
@@ -164,6 +178,10 @@ struct GameInstaller {
         if patcher.data != original {
             try replace(executable, with: patcher.data, mode: 0o755)
         }
+        if patcher.isArm64 {
+            try signAgain()
+            done.append("signed the game again")
+        }
         for name in Self.oldNames {
             let path = macOSDir + "/" + name
             if FileManager.default.fileExists(atPath: path) {
@@ -194,7 +212,28 @@ struct GameInstaller {
                 done.append("deleted \(name)")
             }
         }
+        if patcher.isArm64 && !done.isEmpty {
+            try signAgain()
+            done.append("signed the game again")
+        }
         return done.isEmpty ? "nothing to remove" : done.joined(separator: "; ")
+    }
+
+    /// macOS runs arm64 code only with a valid signature, and the changed executable and the
+    /// library next to it no longer match the app's: sign the app again, ad hoc like RS Re-ARMed's
+    /// own build, keeping its identifier. (macOS may ask again for microphone access.)
+    private func signAgain() throws {
+        let p = Process(), out = Pipe()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        p.arguments = ["--force", "--sign", "-", "--preserve-metadata=identifier,entitlements,flags", gameDir + "/Rocksmith2014.app"]
+        p.standardOutput = out
+        p.standardError = out
+        try p.run()
+        let text = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else {
+            throw Failure.failed("cannot sign the game again: \(text.trimmingCharacters(in: .whitespacesAndNewlines))")
+        }
     }
 
     /// Writes a file next to its destination and renames it into place, so a reader (or a game

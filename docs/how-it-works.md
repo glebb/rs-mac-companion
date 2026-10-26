@@ -18,7 +18,7 @@ RockNRoller, a Rocksmith chart player, gets a library of its own that sends the 
 [rocknroller.md](rocknroller.md)). What both libraries share is in `native/rscore.c`.
 
 ```
-Rocksmith2014 (x86_64, Rosetta)
+Rocksmith2014 (x86_64, Rosetta; or RS Re-ARMed, arm64)
   + librscompanion.dylib  (native/rscompanion.c + native/rsfile.c, loaded by an LC_LOAD_DYLIB)
       │ file reads → song + tone timelines     memory → arrangement, song timer, banners
       │ JSON datagrams, non-blocking
@@ -197,21 +197,31 @@ library, then every library in `steamapps/libraryfolders.vdf` (Rocksmith's app I
 `appmanifest_221680.acf` names the folder under `steamapps/common`, normally `Rocksmith2014`),
 then `/Applications`. Libraries on drives that aren't connected are skipped.
 
+**RS Re-ARMed** (the native arm64 port, `~/Library/Application Support/RS Re-ARMed/game`) is
+preferred over Steam's game when it's installed. It recompiles the original x86_64 game to C and maps
+the original image's bytes as data, so the game's objects, type pointers and offsets are the same;
+only the base differs, which the port exports as `rc_slide` (set when the game starts: the dylib's
+scanning threads wait for it). The library is universal (x86_64 and arm64).
+
 **Install / Update** (refused while that game folder's Rocksmith is running):
 1. If the executable has no companion load command yet, copy it to `Rocksmith2014.orig` (the backup
-   is never overwritten with a patched file).
+   is never overwritten with a patched file). RS Re-ARMed's goes in the game folder, next to the app:
+   inside the app it would count as part of the app's signed code.
 2. Copy the library to `Rocksmith2014.app/Contents/MacOS/librscompanion.dylib` and remove the
    quarantine flag (a downloaded app's copy would otherwise not load).
 3. Remove older companion load commands (`librscompanion_test.dylib` from prototype installs) and
    add `LC_LOAD_DYLIB @executable_path/librscompanion.dylib` to the **x86_64 slice**, in the free
    header space after the last load command. Nothing else in the file moves; the i386 slice is not
-   touched; a fresh install changes ~48 bytes.
+   touched; a fresh install changes ~48 bytes. RS Re-ARMed's executable is thin arm64: the command
+   goes there, and the app is then signed again ad hoc, keeping its identifier (macOS runs arm64
+   code only with a valid signature; it may ask for microphone access again).
 4. Every file is written next to its destination and renamed into place, so a starting game never
    sees a half-written file.
 
 **Uninstall** removes the companion's load command(s) and library only: the commands after it
 move up and the freed space is zeroed, which gives back the executable byte for byte as it was
 before install, with anything installed alongside (the custom-song patch's `libRSBypass`) kept.
+(RS Re-ARMed's is signed again, so there only the signature differs.)
 Removing a load command shifts the library ordinals of later ones; that's harmless for libraries
 the game imports nothing from, which is what injected libraries like these are.
 

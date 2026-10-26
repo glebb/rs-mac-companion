@@ -39,6 +39,9 @@ The two ways to run detect the same things the same way; the difference is where
 | Needs at run time | nothing else | Python 3, Developer Mode |
 
 Both need Rocksmith 2014 Remastered from Steam on macOS (it runs under Rosetta on Apple Silicon).
+RS Companion also works with [RS Re-ARMed](https://github.com/bbelgg/rs-rearmed), the native
+Apple Silicon port: when it's installed, RS Companion installs into it instead (another game folder can
+be set in Settings).
 
 ## RS Companion (the in-game version)
 

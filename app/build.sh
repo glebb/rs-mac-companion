@@ -18,8 +18,8 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp ../presets.default.json "$APP/Contents/Resources/"  # seeds DATA_DIR/presets.json if missing
 cp -R ../third_party/rocksniffer-addons "$APP/Contents/Resources/addons"
-# The in-game library: x86_64, because the game runs under Rosetta.
-clang -arch x86_64 -O2 -Wall -dynamiclib -install_name @executable_path/librscompanion.dylib \
+# The in-game library: x86_64 for the Steam game (Rosetta), arm64 for RS Re-ARMed (native port).
+clang -arch x86_64 -arch arm64 -O2 -Wall -dynamiclib -install_name @executable_path/librscompanion.dylib \
   -o "$APP/Contents/Resources/librscompanion.dylib" ../native/rscompanion.c ../native/rscore.c ../native/rsfile.c -lz
 codesign -s - -f "$APP/Contents/Resources/librscompanion.dylib" >/dev/null 2>&1
 # The library RockNRoller loads when opened from the app: arm64, like RockNRoller.

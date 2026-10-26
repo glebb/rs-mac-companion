@@ -24,7 +24,9 @@
 // Logs to ~/Library/Application Support/rs-mac-companion/rscompanion.log; tone events are lines
 // starting with "EVENT " followed by JSON, like rstone.py's output.
 // What it shares with the RockNRoller library (songs, tone timelines, events, settings): rscore.c.
-// Build: see build.sh (x86_64 only: the game runs under Rosetta).
+// Runs in the Steam game (x86_64 under Rosetta) and in RS Re-ARMed, the native arm64 port, which
+// maps the original x86_64 image's bytes as data: same objects, same addresses plus its rc_slide.
+// Build: see build.sh (a universal library: x86_64 and arm64).
 #include <ctype.h>
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -435,7 +437,19 @@ static int find_ptr(uint64_t base, const uint8_t *d, size_t len, void *ctx) {
     return 1;
 }
 
+// Unslid image address + g_slide = address in this process. Under Rosetta it's dyld's slide of the
+// executable; RS Re-ARMed exports its own (rc_slide), set when the game starts, after our
+// constructor: the threads that use it wait for it (wait_for_image).
 static uint64_t g_slide;
+static const uint64_t *g_rc_slide;
+
+static void wait_for_image(void) {
+    if (!g_rc_slide) return;
+    uint64_t s;
+    while (!(s = __atomic_load_n(g_rc_slide, __ATOMIC_ACQUIRE))) usleep(100000);
+    if (!__atomic_exchange_n(&g_slide, s, __ATOMIC_RELAXED))
+        logline("RS Re-ARMed: game image slide 0x%llx", (unsigned long long)s);
+}
 
 // Name of the selected arrangement of song `key` (its object exists twice), or "". Scans only
 // the learned memory tags when `narrow` and some are known.
@@ -814,6 +828,7 @@ static int play_check(uint8_t *buf, banner_search *bs, ptrs_search *ps, unsigned
 
 static void *searcher(void *arg) {
     (void)arg;
+    wait_for_image();
     uint8_t *buf = own_alloc(CHUNK);
     banner_search *bs = own_alloc(sizeof *bs);  // patterns live in our tagged memory
     ptrs_search *ps = own_alloc(sizeof *ps);
@@ -1273,6 +1288,7 @@ static int emit_stats(uint64_t note, uint64_t sa) {
 
 static void *stats_watch(void *arg) {
     (void)arg;
+    wait_for_image();
     uint8_t *buf = own_alloc(CHUNK);
     stats_search *ss = own_alloc(sizeof *ss);
     uint64_t vt[2] = {NOTE_STATS_VTABLE + g_slide, SCORE_ATTACK_VTABLE + g_slide};
@@ -1325,7 +1341,8 @@ static void *stats_watch(void *arg) {
 // ================================================================ start
 
 static void find_images(void) {
-    for (uint32_t i = 0; i < _dyld_image_count(); i++) {
+    g_rc_slide = dlsym(RTLD_MAIN_ONLY, "rc_slide");
+    for (uint32_t i = 0; !g_rc_slide && i < _dyld_image_count(); i++) {
         const struct mach_header *h = _dyld_get_image_header(i);
         if (h && h->filetype == MH_EXECUTE) {
             g_slide = (uint64_t)_dyld_get_image_vmaddr_slide(i);
@@ -1355,7 +1372,10 @@ __attribute__((constructor)) static void init(void) {
     if (!data_dir(dir, sizeof dir)) return;
     log_open(dir, "rscompanion.log");
     find_images();
-    logline("rscompanion prototype loaded (pid %d, image slide 0x%llx)", getpid(), (unsigned long long)g_slide);
+    if (g_rc_slide)
+        logline("rscompanion prototype loaded (pid %d, RS Re-ARMed)", getpid());
+    else
+        logline("rscompanion prototype loaded (pid %d, image slide 0x%llx)", getpid(), (unsigned long long)g_slide);
     snprintf(g_tags_file, sizeof g_tags_file, "%s/rscompanion_tags.txt", dir);
     snprintf(g_config_file, sizeof g_config_file, "%s/rscompanion.json", dir);
     config_poll();

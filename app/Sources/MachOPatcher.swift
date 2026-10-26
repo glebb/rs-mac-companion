@@ -1,7 +1,9 @@
 import Foundation
 
 /// Adds and removes LC_LOAD_DYLIB load commands in the x86_64 slice of a (universal) Mach-O
-/// executable, in memory. Same rules as tools/add_load_dylib.py:
+/// executable, or in a thin arm64 one (RS Re-ARMed, the native port), in memory. An arm64
+/// executable must be signed again afterwards (GameInstaller does). Same rules as
+/// tools/add_load_dylib.py:
 ///  - a command is added after the existing ones, in the header padding before the first section,
 ///    so nothing else moves; the padding must be zero-filled;
 ///  - removing shifts the commands after it up and zero-fills the freed tail, so adding and then
@@ -14,7 +16,7 @@ struct MachOPatcher {
         var description: String {
             switch self {
             case .notMachO: "not a Mach-O executable"
-            case .noX86Slice: "no x86_64 code in the executable"
+            case .noX86Slice: "no x86_64 or arm64 code in the executable"
             case let .noSpace(free, need): "not enough header space (\(free) bytes free, \(need) needed)"
             case .paddingNotEmpty: "the executable's header padding is not empty"
             }
@@ -24,11 +26,14 @@ struct MachOPatcher {
     private static let fatMagic: UInt32 = 0xCAFE_BABE
     private static let machO64: UInt32 = 0xFEED_FACF
     private static let x86_64: Int32 = 0x0100_0007
+    private static let arm64: Int32 = 0x0100_000C
     private static let lcLoadDylib: UInt32 = 0xC
     private static let lcSegment64: UInt32 = 0x19
 
     var data: Data
-    private let base: Int  // offset of the x86_64 slice
+    private let base: Int  // offset of the slice
+    /// The patched code is arm64 (a thin arm64 executable).
+    let isArm64: Bool
 
     init(_ data: Data) throws {
         self.data = data
@@ -47,9 +52,13 @@ struct MachOPatcher {
         } else {
             base = 0
         }
-        guard base >= 0, base + 32 <= data.count, u32(base) == Self.machO64, Int32(bitPattern: u32(base + 4)) == Self.x86_64 else {
-            throw Failure.notMachO
+        func le32(_ o: Int) -> UInt32 { data.withUnsafeBytes { UInt32(littleEndian: $0.loadUnaligned(fromByteOffset: o, as: UInt32.self)) } }
+        guard base >= 0, base + 32 <= data.count, le32(base) == Self.machO64 else { throw Failure.notMachO }
+        let cpu = Int32(bitPattern: le32(base + 4))
+        guard cpu == Self.x86_64 || (base == 0 && cpu == Self.arm64) else {
+            throw base == 0 ? Failure.noX86Slice : Failure.notMachO
         }
+        isArm64 = cpu == Self.arm64
         try validate()
     }
 
@@ -73,7 +82,7 @@ struct MachOPatcher {
         }
     }
 
-    // Little-endian fields of the x86_64 slice.
+    // Little-endian fields of the slice.
     private func u32(_ o: Int) -> UInt32 { data.withUnsafeBytes { UInt32(littleEndian: $0.loadUnaligned(fromByteOffset: o, as: UInt32.self)) } }
     private mutating func put32(_ o: Int, _ v: UInt32) {
         withUnsafeBytes(of: v.littleEndian) { data.replaceSubrange(o..<o + 4, with: $0) }
