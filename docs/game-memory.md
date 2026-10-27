@@ -209,7 +209,10 @@ words (order-insensitive), or the text equals one tag, or the text appears in th
 Banners are the only event that comes from the game itself rather than from a timeline, so they
 also catch tone changes a timeline would miss, but they are late and need a search. Use them to
 confirm the timer, then rely on the timer. To keep scanning cheap once confirmed, the dylib only
-looks for banners just after each expected change (0.3–3 s after it) and every 15 s.
+looks for banners just after each expected change (0.3–3 s after it) and every 15 s, and only
+where banners turned up before: the game's small strings land in a different malloc region per
+CPU, so these windows add up over a few changes (each miss costs one full scan 2 s after the
+change). Before the timer is confirmed, it looks only while a timer candidate is near a change.
 
 ## 8. Note statistics
 

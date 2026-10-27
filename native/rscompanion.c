@@ -379,10 +379,11 @@ static const tagset *tags_for(int what, tagset *copy) {
 // Returns the bytes scanned.
 typedef int (*chunk_fn)(uint64_t base, const uint8_t *data, size_t len, void *ctx);
 
-static uint64_t scan(uint8_t *buf, const tagset *only, chunk_fn fn, void *ctx) {
+// scan() between lo and hi only.
+static uint64_t scan_between(uint8_t *buf, const tagset *only, uint64_t lo, uint64_t hi, chunk_fn fn, void *ctx) {
     uint64_t total = 0;
-    mach_vm_address_t a = 0;
-    for (;;) {
+    mach_vm_address_t a = lo;
+    while (a < hi) {
         mach_vm_size_t s = 0;
         vm_region_extended_info_data_t info;
         mach_msg_type_number_t cnt = VM_REGION_EXTENDED_INFO_COUNT;
@@ -396,6 +397,9 @@ static uint64_t scan(uint8_t *buf, const tagset *only, chunk_fn fn, void *ctx) {
                    (a < g_own_hi && a + s > g_own_lo);
         int empty = info.pages_resident == 0 && info.pages_swapped_out == 0;
         int wanted = !only || tags_has(only, (int)info.user_tag);
+        if (a >= hi) break;               // the next region starts past hi
+        if (a < lo) s -= lo - a, a = lo;  // the region lo is in
+        if (s > hi - a) s = hi - a;
         if (rw && !ours && !empty && wanted) {
             for (mach_vm_size_t off = 0; off < s; off += CHUNK) {
                 size_t len = s - off < CHUNK ? (size_t)(s - off) : CHUNK;
@@ -407,6 +411,98 @@ static uint64_t scan(uint8_t *buf, const tagset *only, chunk_fn fn, void *ctx) {
         a += s;
     }
     return total;
+}
+
+static uint64_t scan(uint8_t *buf, const tagset *only, chunk_fn fn, void *ctx) {
+    return scan_between(buf, only, 0, UINT64_MAX, fn, ctx);
+}
+
+// Address ranges for narrow scans: windows of RANGE_HALF on both sides of where something was
+// found, within its VM region, most recent first. A tag (scan's `only`) can cover most of the
+// heap (in RS Re-ARMed, MALLOC_SMALL is ~800 MB); these cover a few MB. Small strings made by
+// the same code still land in different malloc regions (one per CPU), so they add up: room for
+// one per core of a large Mac.
+#define NRANGES 32
+#define RANGE_HALF (8ULL << 20)
+typedef struct { uint64_t lo[NRANGES], hi[NRANGES]; int n; } rangeset;
+
+static void ranges_learn(rangeset *r, uint64_t a) {
+    mach_vm_address_t start = a;
+    mach_vm_size_t size = 0;
+    vm_region_basic_info_data_64_t info;
+    mach_msg_type_number_t cnt = VM_REGION_BASIC_INFO_COUNT_64;
+    mach_port_t obj;
+    if (mach_vm_region(mach_task_self(), &start, &size, VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info, &cnt, &obj) !=
+            KERN_SUCCESS ||
+        start > a)
+        return;
+    uint64_t lo = a - start > RANGE_HALF ? a - RANGE_HALF : start;
+    uint64_t hi = start + size - a > RANGE_HALF ? a + RANGE_HALF : start + size;
+    // Merge with every range it overlaps, then put it first (dropping the oldest if full).
+    int k = 0;
+    for (int i = 0; i < r->n; i++) {
+        if (r->lo[i] < hi && lo < r->hi[i]) {
+            if (r->lo[i] < lo) lo = r->lo[i];
+            if (r->hi[i] > hi) hi = r->hi[i];
+        } else if (k < NRANGES - 1) {
+            r->lo[k] = r->lo[i], r->hi[k] = r->hi[i], k++;
+        }
+    }
+    memmove(r->lo + 1, r->lo, k * sizeof r->lo[0]);
+    memmove(r->hi + 1, r->hi, k * sizeof r->hi[0]);
+    r->lo[0] = lo, r->hi[0] = hi, r->n = k + 1;
+}
+
+// scan() over the ranges only.
+typedef struct { chunk_fn fn; void *ctx; int stopped; } scan_stop;
+
+static int until_stopped(uint64_t base, const uint8_t *d, size_t len, void *ctx) {
+    scan_stop *st = ctx;
+    return !(st->stopped = !st->fn(base, d, len, st->ctx));
+}
+
+static uint64_t scan_ranges(uint8_t *buf, const rangeset *r, chunk_fn fn, void *ctx) {
+    uint64_t total = 0;
+    scan_stop st = {fn, ctx, 0};
+    for (int i = 0; i < r->n && !st.stopped; i++) total += scan_between(buf, NULL, r->lo[i], r->hi[i], until_stopped, &st);
+    return total;
+}
+
+// ================================================================ scan threads' CPU time
+
+// Logged every 30 s while a song is selected, to see what the scans cost the game.
+enum { CPU_SEARCHER, CPU_BANNERS, CPU_STATS, NCPU };
+static const char *const CPU_NAMES[NCPU] = {"timer/arrangement search", "banner watch", "note statistics"};
+static mach_port_t g_cpu_thread[NCPU];
+
+static void cpu_register(int which) { g_cpu_thread[which] = mach_thread_self(); }
+
+static double cpu_seconds(int which) {
+    thread_basic_info_data_t info;
+    mach_msg_type_number_t cnt = THREAD_BASIC_INFO_COUNT;
+    if (!g_cpu_thread[which] ||
+        thread_info(g_cpu_thread[which], THREAD_BASIC_INFO, (thread_info_t)&info, &cnt) != KERN_SUCCESS)
+        return 0;
+    return info.user_time.seconds + info.user_time.microseconds / 1e6 + info.system_time.seconds +
+           info.system_time.microseconds / 1e6;
+}
+
+static void cpu_log(void) {
+    static double last[NCPU], last_at;
+    double t = now_s();
+    if (t - last_at < 30) return;
+    char line[256] = "";
+    for (int i = 0; i < NCPU; i++) {
+        double c = cpu_seconds(i);
+        if (last_at > 0) {
+            char part[64];
+            snprintf(part, sizeof part, "%s%s %.0f ms", i ? ", " : "", CPU_NAMES[i], (c - last[i]) * 1000);
+            strlcat(line, part, sizeof line);
+        }
+        last[i] = c;
+    }
+    if (last_at > 0) logline("CPU over the last %.0f s: %s", t - last_at, line);
+    last_at = t;
 }
 
 // A 32-byte small-buffer string {char buf[16] | char *ptr; char *end; char *cap}.
@@ -829,12 +925,21 @@ static int play_check(uint8_t *buf, banner_search *bs, ptrs_search *ps, unsigned
 static void *searcher(void *arg) {
     (void)arg;
     wait_for_image();
+    cpu_register(CPU_SEARCHER);
     uint8_t *buf = own_alloc(CHUNK);
     banner_search *bs = own_alloc(sizeof *bs);  // patterns live in our tagged memory
     ptrs_search *ps = own_alloc(sizeof *ps);
     unsigned seen_song_gen = 0, tries_gen = 0, tries = 0, checked_gen = 0, live_gen = 0;
-    double last_arr_check = 0, selected_at = 0, last_play_check = 0, live_at = 0;
+    double last_arr_check = 0, selected_at = 0, last_play_check = 0, live_at = 0, resumed_at = 0;
+    int idle = 0;
     for (;;) {
+        // Scans only while the app listens: without it they would only cost the game time.
+        if (!listener_present()) {
+            idle = 1;
+            usleep(1000000);
+            continue;
+        }
+        if (idle) idle = 0, resumed_at = now_s();
         pthread_mutex_lock(&g_state_lock);
         unsigned song_gen = g_song_gen;
         double loaded_at = g_song_loaded_at;
@@ -852,11 +957,12 @@ static void *searcher(void *arg) {
             continue;
         }
         // Look for the selected arrangement only after the game loads a song (picking another
-        // arrangement loads the song again): every second for up to 2 minutes, until found.
-        // Narrow scans (cheap) first; every fifth try covers everything.
+        // arrangement loads the song again), or the app comes back: every second for up to 2
+        // minutes, until found. Narrow scans (cheap) first; every fifth try covers everything.
         double t = now_s();
         if (song_gen != seen_song_gen && song_gen != tries_gen) tries_gen = song_gen, tries = 0;
-        if (song_gen != seen_song_gen && t - loaded_at < 120 && t - last_arr_check >= 1) {
+        double since = loaded_at > resumed_at ? loaded_at : resumed_at;
+        if (song_gen != seen_song_gen && t - since < 120 && t - last_arr_check >= 1) {
             last_arr_check = t;
             char name[128];
             selected_arrangement(buf, key, tries++ % 5 != 4, name, sizeof name);
@@ -972,6 +1078,7 @@ static int find_new_banners(uint64_t base, const uint8_t *d, size_t len, void *c
 
 static void *banner_watch(void *arg) {
     (void)arg;
+    cpu_register(CPU_BANNERS);
     uint8_t *buf = own_alloc(CHUNK);
     uint64_t *seen = own_alloc(SEEN_CAP * 8);
     banner_search *bs = own_alloc(sizeof *bs);  // the pattern lives in our tagged memory
@@ -979,12 +1086,23 @@ static void *banner_watch(void *arg) {
     unsigned gen = 0, count = 0;
     int nchanges = 0;
     static float changes[MAX_CHANGES];  // change times of the arrangement (in our image: not scanned)
-    double last_scan = 0;
+    static rangeset where;              // where banners turned up
+    double last_scan = 0, last_banner = 0;
+    int fallback_done = -1;  // the last change whose banner a full scan looked for
     for (;;) {
+        // Scans only while the app listens. Back from that, memory has changed: start over.
+        if (!listener_present()) {
+            gen = 0;
+            usleep(1000000);
+            continue;
+        }
         pthread_mutex_lock(&g_state_lock);
         int have = g_have_arr, confirmed = g_confirmed;
         unsigned arr_gen = g_arr_gen;
         uint64_t timer = g_timer;
+        int npool = g_npool;
+        uint64_t pool[POOL];
+        memcpy(pool, g_pool, sizeof pool);
         if (have && arr_gen != gen) {
             snprintf(bs->pat, sizeof bs->pat, "%s - ", g_arr.song);
             bs->plen = strlen(bs->pat);
@@ -1010,26 +1128,54 @@ static void *banner_watch(void *arg) {
             b.nseen = 0;
         }
         // With a confirmed timer, banners only double-check it: scan just after each tone change
-        // (when the game creates the banner), plus every 15 s in case the timer is wrong.
-        if (confirmed && !b.first) {
-            double v, t = now_s();
-            int due = t - last_scan >= 15;
-            if (!due && read_timer(timer, &v))
-                for (int i = 0; i < nchanges && !due; i++) due = v - changes[i] >= 0.3 && v - changes[i] <= 3.0;
-            if (!due || t - last_scan < 1) {
+        // (when the game creates the banner), plus every 15 s in case the timer is wrong. These
+        // scans read only where banners turned up before; if a change's banner hasn't turned up
+        // there by 2 s after it, one full scan looks for it.
+        int full = b.first;
+        // Before that, a banner confirms the timer only if one of the candidates is near its
+        // change (as the tracker matches them), so scan only while one is: none before the rate
+        // search finds candidates, and none for an arrangement without tone changes.
+        if (!confirmed && !b.first) {
+            int near = 0;
+            double v;
+            for (int c = 0; c < npool && !near; c++)
+                if (read_timer(pool[c], &v))
+                    for (int i = 0; i < nchanges && !near; i++) near = v - changes[i] >= -0.5 && v - changes[i] <= 5.0;
+            if (!near) {
                 usleep(250000);
                 continue;
             }
         }
+        if (confirmed && !b.first) {
+            double v = 0, t = now_s();
+            int due = t - last_scan >= 15, change = -1;
+            if (read_timer(timer, &v))
+                for (int i = 0; i < nchanges && change < 0; i++)
+                    if (v - changes[i] >= 0.3 && v - changes[i] <= 3.0) change = i, due = 1;
+            if (!due || t - last_scan < 1) {
+                usleep(250000);
+                continue;
+            }
+            if (change >= 0 && v - changes[change] >= 2.0 && change != fallback_done &&
+                t - last_banner > v - changes[change]) {
+                full = 1, fallback_done = change;
+                logline("banner watch: no banner where they were before, %.1f s after the change at %.1f s; "
+                        "full scan", v - changes[change], changes[change]);
+            }
+        }
         last_scan = now_s();
         // The first scan of a song notes what is there already and covers everything, so later
-        // narrow scans never mistake an old copy for a new banner. Then only the learned tags,
-        // with a full scan every 10th time (about every 5 s) until the timer is confirmed.
-        tagset tags;
-        const tagset *only = b.first || (!confirmed && count % 10 == 9) ? NULL : tags_for(TAGS_BANNER, &tags);
+        // narrow scans never mistake an old copy for a new banner. Then only where banners turned
+        // up (or, before any did, the learned tags), with a full scan every 10th time (about
+        // every 5 s) until the timer is confirmed.
+        if (!confirmed && count % 10 == 9) full = 1;
         count++;
         bs->n = 0;
-        scan(buf, only, find_new_banners, &b);
+        tagset tags;
+        if (!full && where.n)
+            scan_ranges(buf, &where, find_new_banners, &b);
+        else
+            scan(buf, full ? NULL : tags_for(TAGS_BANNER, &tags), find_new_banners, &b);
         double t = now_s();
         for (int i = 0; i < bs->n; i++) {  // copies not seen before
             uint64_t a = bs->hits[i];
@@ -1046,6 +1192,8 @@ static void *banner_watch(void *arg) {
             pthread_mutex_unlock(&g_state_lock);
             logline("banner seen: \"%s\"", text + bs->plen);
             tags_learn(TAGS_BANNER, a);
+            ranges_learn(&where, a);
+            last_banner = t;
         }
         b.first = 0;
         usleep(500000);
@@ -1101,6 +1249,7 @@ static void *tracker(void *arg) {
             double tv = -1;
             if (have && confirmed && !read_timer(timer, &tv)) tv = -1;
             emit_state(have && gen ? a : NULL, parts, confirmed, tv);
+            if (have) cpu_log();
         }
         if (!have) continue;
 
@@ -1289,6 +1438,7 @@ static int emit_stats(uint64_t note, uint64_t sa) {
 static void *stats_watch(void *arg) {
     (void)arg;
     wait_for_image();
+    cpu_register(CPU_STATS);
     uint8_t *buf = own_alloc(CHUNK);
     stats_search *ss = own_alloc(sizeof *ss);
     uint64_t vt[2] = {NOTE_STATS_VTABLE + g_slide, SCORE_ATTACK_VTABLE + g_slide};
@@ -1299,7 +1449,7 @@ static void *stats_watch(void *arg) {
         pthread_mutex_lock(&g_state_lock);
         int have = g_have_arr;
         pthread_mutex_unlock(&g_state_lock);
-        if (!g_overlay || !have) {
+        if (!g_overlay || !have || !listener_present()) {
             if (note) send_event("{\"event\": \"stats\", \"live\": false}", 1);
             note = sa = 0;
             usleep(500000);

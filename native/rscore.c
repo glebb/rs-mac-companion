@@ -2,6 +2,7 @@
 // rscompanion.c, RockNRoller: rnrcompanion.c): the log, a song's arrangements and tone timelines
 // read from its archive (rsfile.c), the tone at a time, the events to the companion app and its
 // settings file. Declarations and the song types: rscore.h.
+#include <errno.h>
 #include <fcntl.h>
 #include <mach/mach_time.h>
 #include <pthread.h>
@@ -217,9 +218,43 @@ void events_open(const char *data_dir) {
     setsockopt(g_sock, SOL_SOCKET, SO_SNDBUF, &size, sizeof size);
 }
 
+// Whether the app listens: what the last send found (a heartbeat goes out every second), or, with
+// nothing sent for 2 s, a connect() to the socket (no data sent). Nobody bound to the path
+// (ENOENT, ECONNREFUSED) means no app; a full queue still means one. Changes are logged.
+static int g_listener = -1;  // -1: not known yet
+static double g_listener_at;
+
+static void note_listener(int present) {
+    int was = __atomic_exchange_n(&g_listener, present, __ATOMIC_RELAXED);
+    double t = now_s();
+    __atomic_store(&g_listener_at, &t, __ATOMIC_RELAXED);
+    if (was != present)
+        logline(present ? "the app is listening: memory scans on" : "no app listening: memory scans paused");
+}
+
+static int nobody_bound(int err) { return err == ENOENT || err == ECONNREFUSED; }
+
+int listener_present(void) {
+    if (g_sock < 0) return 0;
+    int known = __atomic_load_n(&g_listener, __ATOMIC_RELAXED);
+    double at;
+    __atomic_load(&g_listener_at, &at, __ATOMIC_RELAXED);
+    if (known >= 0 && now_s() - at < 2) return known;
+    int s = socket(AF_UNIX, SOCK_DGRAM, 0);
+    if (s < 0) return known != 0;
+    int ok = connect(s, (const struct sockaddr *)&g_sock_addr, sizeof g_sock_addr) == 0 || !nobody_bound(errno);
+    close(s);
+    note_listener(ok);
+    return ok;
+}
+
 void send_event(const char *json, int log) {
-    if (g_sock >= 0)
-        sendto(g_sock, json, strlen(json), 0, (const struct sockaddr *)&g_sock_addr, sizeof g_sock_addr);
+    if (g_sock >= 0) {
+        if (sendto(g_sock, json, strlen(json), 0, (const struct sockaddr *)&g_sock_addr, sizeof g_sock_addr) >= 0)
+            note_listener(1);
+        else if (nobody_bound(errno))
+            note_listener(0);
+    }
     if (log) logline("EVENT %s", json);
 }
 

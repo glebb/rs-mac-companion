@@ -40,12 +40,18 @@ game's own threads except a few counters in the file-call interposers.
 | interposers (game threads) | `open`, `openat`, `fopen`, `close`, `fclose`, `fread`, `read`, `pread` are interposed with dyld `__interpose`. For `.psarc` files they remember the path per descriptor and queue `(path, offset)` of each read. Never block, never read files themselves. |
 | **worker** | Maps queued reads to archive entries (cached tables of contents). A read in a `songs/bin/macos/<key>_<part>.sng` entry means the game is loading song `<key>`: reads every arrangement's manifest and tone timeline from that archive (1–5 ms). Reads within 10 s of the same song count as one load. |
 | **searcher** | After each song load: finds the selected arrangement (object that exists twice) every second for up to 2 minutes until found. Then, once per song, finds the game's live play record (`Play_<SongKey>` with the song position) every 3 s until the song plays: confirms the timer candidate equal to its position, or checks (and if wrong, drops) a confirmed timer. On hold (see tracker), checks every 2 s: a live record of this song ends the hold; none in 5 checks while the timer runs 10 s on means another song plays whose files the game didn't read now, so the song is dropped (heartbeats without a song, no tone events until the next load). Rate-searches for timer candidates while unconfirmed: for arrangements with tone changes, and for others while the play record shows the song playing. |
-| **banner watch** | Finds new `"<Song> - <Tags>"` banners: continuously until the timer is confirmed, afterwards only just after each expected change and every 15 s. |
+| **banner watch** | Finds new `"<Song> - <Tags>"` banners. Until the timer is confirmed: every 0.5 s while a timer candidate is near a tone change (none for an arrangement without changes). Afterwards: just after each expected change and every 15 s, reading only where banners turned up before (a few MB), with one full scan if a change's banner isn't there 2 s after it. |
 | **tracker** | 20 times a second: emits events, confirms the timer with banners, follows the active slot at `timer + lead` (not on hold: after the timer goes back more than 2 s, or after an arrangement is picked while a timer from an earlier song is confirmed, until the play record or a banner shows this song playing), sends a heartbeat every second, re-reads settings. |
 | **stats watch** | Only with `overlay_enabled` (stream overlays): while an arrangement is selected, looks for the game's note-stats and Score Attack objects by type pointer and marker ([game-memory.md § 8](game-memory.md#8-note-statistics)) every 2 s (narrow scans; a full one at most every 10 s), then reads them 4 times a second until the game frees them. |
 
 Memory searches learn which memory tags hold what they look for and scan only those
 (`rscompanion_tags.txt`); see [game-memory.md § 9](game-memory.md#9-where-things-live-memory-tags).
+
+The searches (searcher, banner watch, stats watch) run only while the app listens on the event
+socket: the last send's result (a heartbeat goes out every second), or a `connect()` to it. With
+the app closed they cost the game nothing; when it comes back, they start over (a fresh banner
+scan, and the arrangement search again for a song loaded meanwhile). Every 30 s with a song the
+log says what each of them cost (`CPU over the last 30 s: …`).
 
 ### Events (dylib → app)
 

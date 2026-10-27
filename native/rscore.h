@@ -69,6 +69,7 @@ extern const char *g_game;          // "game" of state events; NULL: none (Rocks
 
 void events_open(const char *data_dir);
 void send_event(const char *json, int log);
+int listener_present(void);  // the app listens on the socket (checked at most every 2 s)
 void json_str(char *out, size_t outlen, const char *s);
 void emit_tone(const arrangement *a, int slot, const char *source, double time_s);
 void emit_song(const arrangement *a, const char *parts);

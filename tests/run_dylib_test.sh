@@ -18,7 +18,10 @@
 #   - run 4 (stand-in "unseen"): run 3's song is restarted (the timer goes back; the play record
 #     shows the song again, so tone changes go on), then another song starts whose files the game
 #     doesn't read: tone changes stop at once, and once its play record stays gone the song is
-#     dropped (heartbeats without a song).
+#     dropped (heartbeats without a song),
+#   - run 5: run 1's song with no app listening for the first 12 s: the dylib pauses its memory
+#     scans (none before the listener appears), then finds the arrangement and reports the same
+#     tones on time.
 # Needs the game installed (songs.psarc). Everything goes to a temporary folder, so your own data
 # is not touched.
 set -e
@@ -37,19 +40,23 @@ mkdir -p "$DATA"
 STANDIN= LISTENER=
 trap 'kill $STANDIN $LISTENER 2>/dev/null || true; wait 2>/dev/null; rm -rf "$HOME_DIR"' EXIT
 
-for RUN in 1 2 3 4; do
+for RUN in 1 2 3 4 5; do
   LOG="$DATA/rscompanion.log" EVENTS="$DATA/events.jsonl"
   rm -f "$LOG" "$EVENTS"
   [ $RUN = 2 ] && echo '{"lead_ms": 500}' > "$DATA/rscompanion.json"
   [ $RUN = 3 ] && echo '{"lead_ms": 500, "overlay_enabled": true}' > "$DATA/rscompanion.json"
   [ $RUN = 4 ] && echo '{"lead_ms": 500}' > "$DATA/rscompanion.json"
-  python3 tools/event_listener.py --socket "$DATA/events.sock" --out "$EVENTS" > /dev/null 2>&1 &
-  LISTENER=$!
-  sleep 1
+  [ $RUN = 5 ] && rm -f "$DATA/rscompanion.json" "$DATA/events.sock"
+  listen() {
+    python3 tools/event_listener.py --socket "$DATA/events.sock" --out "$EVENTS" > /dev/null 2>&1 &
+    LISTENER=$!
+  }
+  [ $RUN != 5 ] && listen && sleep 1
   HOME="$HOME_DIR" DYLD_INSERT_LIBRARIES="$PWD/build/librscompanion.dylib" \
     build/rs-standin-dylib "$ARCHIVE" "$SNG" "$AUDIO" $([ $RUN = 3 ] && echo notones) $([ $RUN = 4 ] && echo unseen) &
   STANDIN=$!
-  case $RUN in 3) sleep 30 ;; 4) sleep 55 ;; *) sleep 60 ;; esac
+  [ $RUN = 5 ] && sleep 12 && listen && sleep 48
+  case $RUN in 3) sleep 30 ;; 4) sleep 55 ;; 5) ;; *) sleep 60 ;; esac
   kill $STANDIN $LISTENER; wait $STANDIN $LISTENER 2>/dev/null || true
   echo "run $RUN:"
   grep -v '^\S* EVENT' "$LOG" | grep -v '^\S*   ' | grep -v 'banner seen' | sed 's/^/  log: /'
@@ -83,6 +90,14 @@ if run == 4:
         print("   FAIL:", p)
     print(f"run {run}:", "FAIL" if problems else "PASS")
     sys.exit(1 if problems else 0)
+
+if run == 5:
+    at = lambda text: next((i for i, l in enumerate(lines) if text in l), None)
+    paused, resumed = at("no app listening: memory scans paused"), at("the app is listening: memory scans on")
+    scans = [i for i, l in enumerate(lines) if "arrangement scan" in l or "timer search" in l]
+    print(f"   paused at log line {paused}, resumed at {resumed}, first scan at {scans[0] if scans else None}")
+    if paused is None or resumed is None or not paused < resumed or not scans or scans[0] < resumed:
+        problems.append("log: expected scans paused, no scan until the app listens, then scans")
 
 if run == 3:
     tones = [(e["source"], e["arrangement"], e["slot"], e["tone"]) for e in events if e["event"] == "tone"]
@@ -120,7 +135,7 @@ for t in tones:
 expect = [("song-start", "selftrap_rhythm", "Base", "SelfTrap_clean"), ("banner", "selftrap_rhythm", "B", "SelfTrap_dist"),
           ("timer", "selftrap_rhythm", "A", "SelfTrap_clean")]
 # The timer change to Clean is at 63.023 s, reported lead_ms early (checked every 50 ms).
-lo, hi = (62.7, 63.1) if run == 1 else (62.3, 62.7)
+lo, hi = (62.7, 63.1) if run in (1, 5) else (62.3, 62.7)
 if [t[:4] for t in tones] != expect or not lo <= (tones[2][4] or 0) <= hi:
     problems.append(f"tones: expected song-start Clean, banner Distortion, timer Clean at {lo}-{hi} s")
 
@@ -145,8 +160,8 @@ states = [e for e in events if e["event"] == "state"]
 last = states[-1] if states else {}
 print(f"   {len(states)} heartbeats; last: song {last.get('song')!r}, slot {last.get('slot')}, "
       f"locked {last.get('timer_locked')}, time {last.get('time')}, lead {last.get('lead_ms')} ms")
-if not 50 <= len(states) <= 62 or last.get("protocol") != 1 or last.get("song") != "Self Trap" \
-        or not last.get("timer_locked") or last.get("lead_ms") != (100 if run == 1 else 500):
+if not (36 if run == 5 else 50) <= len(states) <= 62 or last.get("protocol") != 1 or last.get("song") != "Self Trap" \
+        or not last.get("timer_locked") or last.get("lead_ms") != (500 if run in (2, 3, 4) else 100):
     problems.append("heartbeats: expected ~1 per second, ending with the song, a locked timer and the lead time")
 
 if any(e["event"] == "stats" for e in events):
