@@ -2,9 +2,15 @@
 
 The rules live in presets.json in the data folder (seeded from presets.default.json). Where
 presets.json's "artists" has nothing for a tone's category, an AI model may change it (reason "AI"):
-the song's own answer in ai_classified.json ("crunch" turns Heavy into Crunch, "heavy" Crunch into
-Heavy), or for a song without one, the artist-wide "artists" in ai_suggestions.json. Songs listed in
-presets.json's "ai_rejected" get neither. As Presets.swift."""
+the song's own answer in ai_classified.json, or for a song without one, the artist-wide "artists" in
+ai_suggestions.json. Songs listed in presets.json's "ai_rejected" get neither. As Presets.swift.
+
+An answer's "gain_offset" (experimental; written by classify_songs.py) is how many drive bands
+hotter the Rocksmith tones are than the record (1 band = 1/3 of rig.drive's 0-1 scale). When it is
+present, each tone's measured drive is shifted down by offset/3, rebanded, and the rules' category
+is moved by the per-tone band delta (reason "AI offset ..."). This keeps the differences between a
+song's parts while correcting the whole song's bias. An answer without it falls back to the older
+all-or-nothing swap ("crunch" turns Heavy into Crunch, "heavy" Crunch into Heavy)."""
 import json
 import os
 import re
@@ -13,6 +19,8 @@ import paths
 import rig
 
 CATEGORIES = ["Clean", "Crunch", "Heavy", "Lead"]
+# The categories that a drive band maps to, ordered by gain, for the AI gain_offset shift.
+DRIVE_CATEGORIES = ["Clean", "Crunch", "Heavy"]
 # Preset names used before categories existed, for files without a "categories" section.
 BUILTIN_CATEGORIES = {"distortion": "Heavy", "acoustic": "Clean", "bass": "Clean", "bass drive": "Crunch"}
 
@@ -96,14 +104,36 @@ class Presets:
             return preset, why
         answer = self.answer(song_key)
         if answer:
-            c = self.category(preset)
-            if answer.get("distortion") == "crunch" and c == "Heavy":
-                return "Crunch", f"{why}, AI"
-            if answer.get("distortion") == "heavy" and c == "Crunch":
-                return "Heavy", f"{why}, AI"
-            return preset, why
+            return self._apply_answer(preset, why, answer, drive)
         new = self._remap(self.ai, artist, preset)
         return (new, f"{why}, AI") if new else (preset, why)
+
+    def _apply_answer(self, preset, why, answer, drive):
+        """How a song's own answer changes the rules' (preset, reason): the gain_offset shift when
+        the answer has one and the tone's drive is known, else the older crunch/heavy swap."""
+        c = self.category(preset)
+        offset = answer.get("gain_offset")
+        if isinstance(offset, (int, float)) and not isinstance(offset, bool) and drive is not None:
+            shifted = self._shift(c, drive, offset)
+            return (shifted, f"{why}, AI offset {offset:+g}") if shifted != c else (preset, why)
+        if answer.get("distortion") == "crunch" and c == "Heavy":
+            return "Crunch", f"{why}, AI"
+        if answer.get("distortion") == "heavy" and c == "Crunch":
+            return "Heavy", f"{why}, AI"
+        return preset, why
+
+    @staticmethod
+    def _shift(category, drive, offset):
+        """The category after shifting a distorted tone by the song's gain_offset (in drive bands):
+        reband the tone's drive lowered by offset/3 and move the category by that band delta. Only
+        Clean/Crunch/Heavy move; Lead and the like are left alone."""
+        if category not in DRIVE_CATEGORIES:
+            return category
+        bands = ["clean", "crunch", "heavy"]
+        orig = rig.band(drive)
+        adjusted = min(max(drive - offset / 3.0, 0.0), 1.0)
+        delta = bands.index(rig.band(adjusted)) - bands.index(orig)
+        return DRIVE_CATEGORIES[min(max(DRIVE_CATEGORIES.index(category) + delta, 0), 2)]
 
     def _remap(self, source, artist, preset):
         """What an "artists" section maps the preset (or its category) to for this artist, if anything."""

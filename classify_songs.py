@@ -51,6 +51,13 @@ For each song answer:
 breakup to classic rock overdrive (AC/DC, Bon Jovi, Led Zeppelin, most 60s-80s rock); "heavy" is \
 high-gain distortion (metal, hard rock with saturated rhythm tones, grunge with fuzz). Use "none" \
 only when the song has no distorted guitar at all.
+- gain_offset: how much hotter the Rocksmith tones are than the record's distorted guitars, in \
+steps the width of the gap between clean, crunch and heavy. 0 means they match the record. 1 means \
+about one step too hot (a Rocksmith "heavy" rhythm that is really crunch on the record, or a \
+"crunch" that is really clean); 2 means two steps. Use a small negative (down to -1) only when the \
+record is heavier than the Rocksmith tones. Give the song's overall bias as one number: it is \
+applied to every distorted tone, so the differences between the song's parts (clean intro, rhythm, \
+solo) are kept.
 - confidence: "high" when you know the recording, "medium" when you know the artist's sound but \
 not this song, "low" when you are guessing from the measurements.
 - reason: at most 12 words.
@@ -130,10 +137,11 @@ def schema(style_names):
             "song_key": {"type": "string"},
             "style": {"type": "string", "enum": style_names},
             "distortion": {"type": "string", "enum": ["crunch", "heavy", "none"]},
+            "gain_offset": {"type": "number"},
             "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
             "reason": {"type": "string"},
         },
-        "required": ["song_key", "style", "distortion", "confidence", "reason"],
+        "required": ["song_key", "style", "distortion", "gain_offset", "confidence", "reason"],
         "additionalProperties": False,
     }
     return {"type": "object", "properties": {"songs": {"type": "array", "items": item}},

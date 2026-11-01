@@ -9,9 +9,12 @@ import Foundation
 /// The result of 3 or 4 may then be changed by the song's artist ("artists": {"Bon Jovi":
 /// {"Heavy": "Crunch"}}), or where that has nothing for the category, by an AI model (reason
 /// ", AI"): the song's own answer in ai_classified.json next to it (written by the app and by
-/// classify_songs.py; "crunch" turns Heavy into Crunch, "heavy" Crunch into Heavy), or for a song
-/// without one, the artist-wide suggestions in ai_suggestions.json (classify_songs.py; same format
-/// as presets.json). Songs in "ai_rejected" get neither. Styles go the same way: "song_styles",
+/// classify_songs.py), or for a song without one, the artist-wide suggestions in ai_suggestions.json
+/// (classify_songs.py; same format as presets.json). When the answer has a "gain_offset" (how many
+/// drive bands hotter the Rocksmith tones are than the record), each tone's drive is shifted down by
+/// offset/3 and rebanded, moving the category by that per-tone band delta (reason ", AI offset ...");
+/// an answer without one falls back to the old swap ("crunch" turns Heavy into Crunch, "heavy" Crunch
+/// into Heavy). Songs in "ai_rejected" get neither. Styles go the same way: "song_styles",
 /// then the answer's style, then the suggestions' "song_styles". The resulting preset name is read as a category: a category name
 /// itself, or the "categories" section (e.g. "Distortion": "Heavy"). Overrides made in the app write
 /// category names into "songs" (for every part of the song that uses the tone). The file is
@@ -42,6 +45,7 @@ final class Presets {
     struct Answer: Equatable {
         let style: String
         let distortion: String          // "crunch", "heavy" or "none"
+        let gainOffset: Double?         // drive bands the Rocksmith tones sit above the record, if given
         let confidence: String          // "high", "medium" or "low"
         let reason: String
     }
@@ -164,6 +168,11 @@ final class Presets {
         guard useAI, !isRejected(songKey) else { return result(preset, reason) }
         if let answer = answer(songKey) {
             let c = category(of: preset)
+            if let offset = answer.gainOffset, let drive = tone.drive {
+                let shifted = Self.shift(c, drive: drive, offset: offset)
+                return shifted != c ? result(shifted.name, "\(reason), AI offset \(String(format: "%+g", offset))")
+                                    : result(preset, reason)
+            }
             if answer.distortion == "crunch", c == .heavy { return result(Category.crunch.name, "\(reason), AI") }
             if answer.distortion == "heavy", c == .crunch { return result(Category.heavy.name, "\(reason), AI") }
             return result(preset, reason)
@@ -193,7 +202,20 @@ final class Presets {
         guard let a = answers[songKey.lowercased()] as? [String: Any],
               let style = a["style"] as? String, let distortion = a["distortion"] as? String,
               let confidence = a["confidence"] as? String, confidence != "low" else { return nil }
-        return Answer(style: style, distortion: distortion, confidence: confidence, reason: a["reason"] as? String ?? "")
+        return Answer(style: style, distortion: distortion, gainOffset: (a["gain_offset"] as? NSNumber)?.doubleValue,
+                      confidence: confidence, reason: a["reason"] as? String ?? "")
+    }
+
+    /// The category after shifting a distorted tone by the song's gain_offset (in drive bands):
+    /// reband the tone's drive lowered by offset/3 and move the category by that band delta. Only
+    /// Clean/Crunch/Heavy move; Lead and the like are left alone. Mirrors presets.py _shift.
+    static func shift(_ category: Category, drive: Double, offset: Double) -> Category {
+        guard [.clean, .crunch, .heavy].contains(category) else { return category }
+        let bands = ["clean", "crunch", "heavy"]
+        let adjusted = min(max(drive - offset / 3.0, 0.0), 1.0)
+        guard let orig = Rig.band(drive), let oBand = bands.firstIndex(of: orig),
+              let adj = Rig.band(adjusted), let aBand = bands.firstIndex(of: adj) else { return category }
+        return Category(rawValue: min(max(category.rawValue + (aBand - oBand), 0), 2)) ?? category
     }
 
     /// Whether the model was asked about this song key (a guess counts: it isn't asked again).
