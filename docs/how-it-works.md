@@ -51,7 +51,11 @@ The searches (searcher, banner watch, stats watch) run only while the app listen
 socket: the last send's result (a heartbeat goes out every second), or a `connect()` to it. With
 the app closed they cost the game nothing; when it comes back, they start over (a fresh banner
 scan, and the arrangement search again for a song loaded meanwhile). Every 30 s with a song the
-log says what each of them cost (`CPU over the last 30 s: …`).
+log says what each of them cost and how many copy-on-write faults the game took (`CPU over the
+last 30 s: …`; these should stay near 0, see [game-memory.md § 2](game-memory.md#2-two-ways-in-from-outside-from-inside)).
+When the song timer loses time against the clock for up to a few seconds and runs on, the log says
+so, with what the scans read meanwhile (`song stalled: the timer lost 0.42 s at 139.95 s; 0 MB read
+meanwhile`): 0 MB means the companion wasn't scanning when the song stalled.
 
 ### Events (dylib → app)
 

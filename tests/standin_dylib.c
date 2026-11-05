@@ -14,6 +14,7 @@
 // to a stale record from an earlier play and the preview's "Play_SelfTrap_Preview". While that
 // song plays, the note-stats and Score Attack objects count one hit per second (score +100 each),
 // next to a freed note-stats copy (marker kept, type pointer gone).
+// At e = 15 s the song stalls for 0.4 s (the timer stands still, then runs on).
 // "unseen" is "notones" with two more starts: at e = 20 s Self Trap is restarted (timer and play
 // record from 0 again), and at e = 32 s another song starts without the game reading its files
 // (the timer runs from 0 again, Self Trap's play record stops).
@@ -110,6 +111,7 @@ int main(int argc, char **argv) {
     for (;;) {
         clock_gettime(CLOCK_MONOTONIC, &n);
         double e = (n.tv_sec - s.tv_sec) + (n.tv_nsec - s.tv_nsec) / 1e9;
+        for (int i = 0; i < 2000000; i += 2048) dd[i] = dd[i];  // the game keeps writing its heap
         if (!read_sng && e >= 1) {
             f = fopen(argv[1], "rb");
             fread(buf, 1, sizeof buf, f);  // header + table of contents
@@ -133,6 +135,7 @@ int main(int argc, char **argv) {
             *picked = e < 3 ? 0.0 : e - 3;
             if (unseen && e >= 32) *song = e - 32;
             else if (unseen && e >= 20) *song = e - 20;
+            else if (e >= 15) *song = e < 15.4 ? 10.0 : e - 5.4;  // the song stalls for 0.4 s
             else *song = e < 5 ? 0.0 : e - 5;
             if (!rec && e >= 5) {
                 g_objects[9] = rec = play_record("Play_SelfTrap", 0);

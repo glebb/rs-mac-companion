@@ -56,6 +56,15 @@ Why `mach_vm_read_overwrite` even in-process: the game frees and unmaps memory w
 plain pointer dereference into a page unmapped a moment ago would crash the game; the Mach call
 returns an error instead. Every read in the dylib goes through `safe_read()`.
 
+`safe_read()` asks for at most two kernel pages per call (32 KB on Apple Silicon, also under
+Rosetta; 8 KB on Intel). The kernel copies a read that small; a larger one is a virtual copy, which
+write-protects those pages of the game until it next writes them, so every first write afterwards
+is a copy-on-write fault, on whichever thread makes it (RS Re-ARMed's real-time audio thread and
+its guest stacks, which are plain `mmap`s and not skipped as stacks, included). Measured with a
+560 MB stand-in heap, scanned twice a second: 1 MB reads gave ~150,000 copy-on-write faults in 8 s
+and writes stalled for up to 5 ms; 32 KB reads gave none and 0.04 ms at worst, for ~70 ms more per
+scan. The 30 s `CPU over the last …` log line counts these faults.
+
 ## 3. Scanning memory
 
 Both readers enumerate regions with `mach_vm_region` and scan only regions that are **readable

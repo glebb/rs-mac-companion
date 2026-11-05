@@ -8,13 +8,16 @@
 #   - starting tone, first change from the banner (which also locks the song timer while
 #     ignoring decoy clocks), next change from the timer, on time,
 #   - a state heartbeat about every second,
+#   - the scans cause no copy-on-write faults in the game (see safe_read), with a stand-in heap
+#     written by the game all the time,
 #   - run 2 reuses the memory tags learned in run 1 (narrow scans) and a lead time of 500 ms
 #     set in rscompanion.json,
 #   - run 3 (stand-in "notones": Self Trap's bass, no tone changes, no banners): the game's play
 #     record "Play_SelfTrap" locks the song timer within seconds of the song starting, ignoring a
 #     stale record and a clock started when the song was picked. With overlay_enabled set in
 #     rscompanion.json for this run, the note-stats and Score Attack objects are found by type
-#     pointer (not the freed copy) and reported in stats events; runs 1-2 send none,
+#     pointer (not the freed copy) and reported in stats events; runs 1-2 send none. The song
+#     stalls for 0.4 s: logged once, with the time it lost,
 #   - run 4 (stand-in "unseen"): run 3's song is restarted (the timer goes back; the play record
 #     shows the song again, so tone changes go on), then another song starts whose files the game
 #     doesn't read: tone changes stop at once, and once its play record stays gone the song is
@@ -99,7 +102,17 @@ if run == 5:
     if paused is None or resumed is None or not paused < resumed or not scans or scans[0] < resumed:
         problems.append("log: expected scans paused, no scan until the app listens, then scans")
 
+if run in (1, 2):
+    cow = [int(l.rsplit(" ", 1)[1]) for l in lines if "copy-on-write faults" in l]
+    print(f"   copy-on-write faults per 30 s: {cow}")
+    if not cow or any(cow):
+        problems.append("log: expected scans to cause no copy-on-write faults")
+
 if run == 3:
+    stalls = [l for l in lines if "song stalled" in l]
+    print("  ", stalls)
+    if len(stalls) != 1 or "lost 0.4" not in stalls[0] and "lost 0.3" not in stalls[0]:
+        problems.append("log: expected the 0.4 s stall to be logged once")
     tones = [(e["source"], e["arrangement"], e["slot"], e["tone"]) for e in events if e["event"] == "tone"]
     print("  ", tones)
     if tones != [("song-start", "selftrap_bass", "Base", "SelfTrap_bass")]:

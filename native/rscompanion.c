@@ -281,10 +281,21 @@ static void *own_alloc(size_t size) {
     return p == MAP_FAILED ? NULL : p;
 }
 
+static uint64_t g_bytes_read;  // by safe_read, which is how the tracker tells if scans ran during a stall
+
+// At most two kernel pages per call: the kernel copies that much, but a larger read is a virtual
+// copy, which write-protects those pages of the game until it next writes them. Each write is
+// then a copy-on-write fault, and the call holds the game's VM map while it marks them.
 static int safe_read(uint64_t addr, void *buf, size_t len) {
-    mach_vm_size_t got = 0;
-    return mach_vm_read_overwrite(mach_task_self(), addr, len, (mach_vm_address_t)buf, &got) == KERN_SUCCESS &&
-           got == len;
+    const size_t most = 2 * vm_kernel_page_size;
+    for (size_t off = 0; off < len; off += most) {
+        mach_vm_size_t n = len - off < most ? len - off : most, got = 0;
+        if (mach_vm_read_overwrite(mach_task_self(), addr + off, n, (mach_vm_address_t)buf + off, &got) != KERN_SUCCESS ||
+            got != n)
+            return 0;
+    }
+    __atomic_add_fetch(&g_bytes_read, len, __ATOMIC_RELAXED);
+    return 1;
 }
 
 // Memory region tags (VM_MEMORY_*: malloc zones, stacks, graphics, ...). Each search learns which
@@ -489,8 +500,12 @@ static double cpu_seconds(int which) {
 
 static void cpu_log(void) {
     static double last[NCPU], last_at;
+    static integer_t last_cow;
     double t = now_s();
     if (t - last_at < 30) return;
+    task_events_info_data_t ev = {0};
+    mach_msg_type_number_t evn = TASK_EVENTS_INFO_COUNT;
+    task_info(mach_task_self(), TASK_EVENTS_INFO, (task_info_t)&ev, &evn);
     char line[256] = "";
     for (int i = 0; i < NCPU; i++) {
         double c = cpu_seconds(i);
@@ -501,7 +516,8 @@ static void cpu_log(void) {
         }
         last[i] = c;
     }
-    if (last_at > 0) logline("CPU over the last %.0f s: %s", t - last_at, line);
+    if (last_at > 0) logline("CPU over the last %.0f s: %s; copy-on-write faults %d", t - last_at, line, ev.cow_faults - last_cow);
+    last_cow = ev.cow_faults;
     last_at = t;
 }
 
@@ -1209,7 +1225,8 @@ static void *tracker(void *arg) {
     arrangement *a = own_alloc(sizeof *a);
     banner pending[PENDING];
     int npending = 0;
-    double last_beat = 0, prev = -1;
+    double last_beat = 0, prev = -1, prev_at = 0, behind = 0;
+    uint64_t bytes_before = 0;
     static char parts[sizeof g_parts];  // in our image: never scanned
     for (;;) {
         usleep(50000);
@@ -1344,7 +1361,20 @@ static void *tracker(void *arg) {
             logline("song timer went back from %.2f to %.2f s; tone changes wait for the play record of %s", prev, v,
                     a->song_key);
         }
-        prev = v;
+        // The song stalling: the timer losing time against the clock, then running on. Longer
+        // than a few seconds is a pause or the song ending, and a slow tick of ours loses nothing.
+        double at = now_s();
+        uint64_t bytes = __atomic_load_n(&g_bytes_read, __ATOMIC_RELAXED);
+        double lost = prev >= 0 && v >= prev - 2 ? at - prev_at - (v - prev) : 0;
+        if (lost >= 0.03) {
+            behind += lost;
+        } else {
+            if (behind >= 0.1 && behind < 3)
+                logline("song stalled: the timer lost %.2f s at %.2f s; %.0f MB read meanwhile", behind, v,
+                        (bytes - bytes_before) / 1e6);
+            behind = 0, bytes_before = bytes;
+        }
+        prev = v, prev_at = at;
         if (hold) continue;
         int slot = slot_at(a, v + g_lead_ms / 1000.0);
         if (slot != g_last_slot) {
