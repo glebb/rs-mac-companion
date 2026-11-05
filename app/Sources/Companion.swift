@@ -27,9 +27,8 @@ struct AIVerdict: Equatable {
 }
 
 /// Receives the dylib's events, keeps the current song and tone, maps tones to categories with
-/// presets.json, and sends a Program Change when the active tone's category changes. With
-/// song tone messages on, it also describes the song's tones in a SysEx when a song loads
-/// (SongTones.swift), for a tool that makes a sound per tone, and plays those instead.
+/// presets.json, and sends what the device profile says (Profile.swift) when a song loads and
+/// when the active tone changes what should sound.
 @MainActor
 final class Companion: ObservableObject {
     static let shared = Companion()
@@ -46,6 +45,10 @@ final class Companion: ObservableObject {
     @Published private(set) var lastMIDI: String?
     @Published private(set) var madeTones: SongTones?   // the song tones described for this song
     @Published private(set) var problem: String?
+    @Published private(set) var outputProblem: String?  // the profile's destination isn't connected
+    @Published private(set) var profile: Profile
+    @Published private(set) var profiles: [Profile]
+    @Published private(set) var profileError: String?   // the chosen profile can't be used
     @Published private(set) var presetsError: String?  // presets.json can't be read (Presets.error)
     @Published var paused = false
     @Published private(set) var settings: Settings
@@ -65,7 +68,9 @@ final class Companion: ObservableObject {
     private var socket: EventSocket?
     private let midi = MIDIOut()
     private let presets: Presets
-    private var sentProgram: Int?
+    private let profileStore: Profiles
+    private var sentSteps: [Profile.Step]?
+    private var songLoadOwed = false                // paused when the song loaded
     private var archive = ""
     private var songTonesKey = ""   // archive|arrangement the song tones were described for
     private var active: GameEvent.Tone?
@@ -93,6 +98,17 @@ final class Companion: ObservableObject {
         settingsModified = Self.modified(settingsPath)
         presets = Presets(path: dataDir + "/presets.json",
                           defaults: Bundle.main.url(forResource: "presets.default", withExtension: "json"))
+        profileStore = Profiles(dir: dataDir + "/profiles", bundled: Bundle.main.url(forResource: "profiles", withExtension: nil))
+        profile = .plain
+        profiles = profileStore.all
+        if settings.profile == nil {
+            let raw = FileManager.default.contents(atPath: settingsPath)
+            let json = raw.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+            settings.profile = profileStore.migrate(legacy: .legacy(json: json))
+            profiles = profileStore.all
+            settings.save(to: settingsPath)
+            settingsModified = Self.modified(settingsPath)
+        }
         problem = midi.error
         let socket = EventSocket(path: dataDir + "/events.sock") { [weak self] in self?.handle($0) }
         if let error = socket.start() { problem = error }
@@ -100,6 +116,7 @@ final class Companion: ObservableObject {
         record("started; listening on \(socket.path); mapping in \(presets.path)")
         if let done = presets.upgrade() { record(done) }
         checkPresets(reload: false)
+        checkProfile()
         overlay = Overlay(dataDir: dataDir) { [weak self] in self?.record($0) }
         overlay.configure(enabled: settings.overlayEnabled, port: settings.overlayPort)
         checkGame()
@@ -108,6 +125,7 @@ final class Companion: ObservableObject {
                 self?.checkGame()
                 self?.reloadSettingsIfEdited()
                 self?.checkPresets()
+                self?.checkProfile()
             }
         }
     }
@@ -256,9 +274,17 @@ final class Companion: ObservableObject {
     func connected(to game: String?) -> Bool { connected() && self.game == game }
 
     func resend() {
-        sentProgram = nil
+        sentSteps = nil
         send(reason: "resend")
     }
+
+    func chooseProfile(_ id: String) {
+        var new = settings
+        new.profile = id
+        update(new)
+    }
+
+    var profilesFolder: URL { URL(fileURLWithPath: profileStore.dir) }
 
     /// Saves new settings (shared with the dylib, which picks up lead_ms within a second) and
     /// applies them.
@@ -269,26 +295,56 @@ final class Companion: ObservableObject {
         apply(new, "settings")
     }
 
-    /// Uses new settings, from Settings or from rscompanion.json edited by hand: resends the current
-    /// tone if the MIDI output changed, and starts or stops what the settings turn on or off.
+    /// Uses new settings, from Settings or from rscompanion.json edited by hand: starts or stops
+    /// what the settings turn on or off.
     private func apply(_ new: Settings, _ origin: String) {
-        // A new first program changes the message, so it is sent again.
-        let renumbered = new.songToneFirstProgram != settings.songToneFirstProgram
-        let midiChanged = new.channel != settings.channel || new.programs != settings.programs
-            || new.songTones != settings.songTones || new.songTonePrograms != settings.songTonePrograms || renumbered
+        let profileChanged = new.profile != settings.profile
         settings = new
-        record("\(origin): channel \(new.channel), programs \(new.programs), lead \(new.leadMs) ms, overlays "
-            + (new.overlayEnabled ? "on (port \(new.overlayPort))" : "off") + ", song tones " + (new.songTones ? "on" : "off")
+        record("\(origin): profile \(new.profile ?? "?"), lead \(new.leadMs) ms, overlays "
+            + (new.overlayEnabled ? "on (port \(new.overlayPort))" : "off")
             + ", AI " + (new.aiClassify ? "on (\(new.aiModel))" : "off"))
-        if midiChanged {
-            makeSongTones(force: renumbered)
-            resend()
-        }
+        if profileChanged { checkProfile() }
         overlay.configure(enabled: new.overlayEnabled, port: new.overlayPort)
         if new.aiClassify { classifyIfNeeded() }
     }
 
-    func program(for category: Category) -> Int { settings.program(for: category) }
+    /// What a category sends, for the window.
+    func label(for category: Category) -> String { Profile.label(profile.category[category.rawValue]) }
+
+    /// Picks up the chosen profile and edits to its file, and notices its destination come and
+    /// go. While the file can't be used, the last good version stays in use.
+    private func checkProfile() {
+        if profileStore.reload() { profiles = profileStore.all }
+        let id = settings.profile ?? Profile.defaultID
+        let error = profileStore.errors[id].map { "profiles/\(id).json: \($0)" }
+            ?? (profileStore.profile(id) == nil ? "profiles/\(id).json is missing" : nil)
+        if error != profileError {
+            profileError = error
+            record(error ?? "profiles/\(id).json can be read again")
+        }
+        if let new = profileStore.profile(id), new != profile { use(new) }
+        let reachable = midi.reachable(profile.destination)
+        if reachable, outputProblem != nil {
+            outputProblem = nil
+            record("\(profile.name): destination connected")
+            runSongLoad()
+            resend()
+        } else if !reachable, outputProblem == nil, case .device(let name) = profile.destination {
+            outputProblem = "\(name) isn't connected"
+            record(outputProblem ?? "")
+        }
+    }
+
+    /// Starts sending by a profile: for the song that's loaded, as if it had just loaded.
+    private func use(_ new: Profile) {
+        profile = new
+        record("profile \(new.id) (\(new.name)): " + new.destinationLabel)
+        outputProblem = nil
+        songTonesKey = ""
+        if !new.needsSongData { madeTones = nil }
+        makeSongTones()
+        resend()
+    }
 
     private static func modified(_ path: String) -> Date? {
         (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
@@ -297,7 +353,9 @@ final class Companion: ObservableObject {
     func setPaused(_ value: Bool) {
         paused = value
         record(value ? "MIDI paused" : "MIDI resumed")
-        if !value { send(reason: "resumed") }
+        guard !value else { return }
+        if songLoadOwed { runSongLoad() }
+        send(reason: "resumed")
     }
 
     /// Sets (category) or removes (nil: back to automatic) the override for a tone in every
@@ -529,6 +587,7 @@ final class Companion: ObservableObject {
         activeSlot = nil
         activeCategory = nil
         songTonesKey = ""
+        songLoadOwed = false
         madeTones = nil
         toneDrives = [:]
         drivesKey = ""
@@ -578,22 +637,22 @@ final class Companion: ObservableObject {
         }
     }
 
-    /// With song tone messages on, reads the song's gear from its archive and sends the song's
-    /// tones (once per arrangement; again when the settings or the mapping change).
+    /// When the profile uses them, reads the song's tones from its archive (once per arrangement;
+    /// again when the mapping changes), and runs the profile's song load sequence.
     private func makeSongTones(force: Bool = false) {
-        guard settings.songTones, let song, !arrangement.isEmpty, !archive.isEmpty else {
-            if !settings.songTones { madeTones = nil }
+        guard profile.needsSongData, let song, !arrangement.isEmpty, !archive.isEmpty else {
+            if !profile.needsSongData { madeTones = nil }
             return
         }
         let key = archive + "|" + arrangement
-        guard force || key != songTonesKey else { return }
+        let again = key == songTonesKey
+        guard force || !again else { return }
         songTonesKey = key
         let prefix = songPrefix
-        let t0 = Date()
         // The song's parts as readDrives read them from the archive (once per song).
         guard !rigArrangements.isEmpty,
               var made = SongTones.make(song: song, artist: artist, arrangement: arrangement, from: rigArrangements,
-                                        firstProgram: settings.songToneFirstProgram,
+                                        firstProgram: profile.toneFirstProgram ?? SongTones.defaultFirstProgram,
                                         category: { slot, key in
                                             self.match(self.gameTone(slot: slot, key: key)).category
                                         },
@@ -604,13 +663,27 @@ final class Companion: ObservableObject {
         }
         made.styles = presets.styleNames
         madeTones = made
-        let message = made.json
+        if !again || profile.songLoadAgain { runSongLoad() }
+    }
+
+    /// The profile's sequence for the song's style. A device that was switched here starts from
+    /// what it stored, so the tone's messages count as not sent.
+    private func runSongLoad() {
+        guard let made = madeTones else { return }
+        let steps = profile.songLoadSteps(style: made.style)
+        guard !steps.isEmpty else { return }
+        let label = Profile.label(steps)
         if paused {
-            return record("paused: would send song tones \(made.summary)")
+            songLoadOwed = true
+            return record("paused: would send \(label) for \(made.summary)")
         }
-        midi.sysex([0x7D] + Array(message.utf8))
-        record(String(format: "MIDI SysEx song tones (%d bytes, %.0f ms) %@", message.utf8.count + 1,
-                      Date().timeIntervalSince(t0) * 1000, made.summary))
+        songLoadOwed = false
+        let message = made.json
+        guard midi.play(steps, channel: profile.channel, to: profile.destination, message: [0x7D] + Array(message.utf8)) else {
+            return record("not sent, no destination: \(label)")
+        }
+        if steps.contains(where: { $0 != .songTonesMessage }) { sentSteps = nil }
+        record("MIDI \(label) ch \(profile.channel) on song load (\(message.utf8.count + 1) byte message) \(made.summary)")
     }
 
     /// A tone key's tags, from the song event.
@@ -663,28 +736,32 @@ final class Companion: ObservableObject {
                       artist: artist, overrides: overrides, ai: ai)
     }
 
-    /// The program for the active tone: its song tone's, or its category's.
-    private func target() -> (program: Int, label: String)? {
+    /// What plays the active tone, by the profile.
+    private func target() -> (steps: [Profile.Step], label: String)? {
         guard let category = activeCategory else { return nil }
-        if settings.songTones, settings.songTonePrograms, let tone = active, let program = madeTones?.program(for: tone.tone) {
-            return (program, "song tone, \(category.name)")
-        }
-        return (settings.program(for: category), category.name)
+        let index = active.flatMap { tone in madeTones?.tones.firstIndex { $0.key.lowercased() == tone.tone.lowercased() } }
+        let kinds = index.flatMap { madeTones?.tones[$0].effects.kinds } ?? []
+        let songTone = index != nil && profile.toneFirstProgram != nil
+        return (profile.toneSteps(category: category, toneIndex: index, effectKinds: kinds),
+                songTone ? "song tone, \(category.name)" : category.name)
     }
 
-    /// Sends only when the program changes: many devices drop unsaved edits on every preset
-    /// change, so the same program is never sent twice in a row.
+    /// Sends only when the steps change: many devices drop unsaved edits on every preset change,
+    /// so the same thing is never sent twice in a row.
     private func send(reason: String) {
-        guard let (program, label) = target(), program != sentProgram else { return }
+        guard let (steps, label) = target(), !steps.isEmpty, steps != sentSteps else { return }
+        let text = Profile.label(steps)
         guard !paused else {
-            record("paused: would send PC \(program) (\(label))")
+            record("paused: would send \(text) (\(label))")
             return
         }
-        midi.programChange(program, channel: settings.channel)
-        sentProgram = program
+        guard midi.play(steps, channel: profile.channel, to: profile.destination) else {
+            return record("not sent, no destination: \(text) (\(label))")
+        }
+        sentSteps = steps
         let clock = Date().formatted(date: .omitted, time: .standard)
-        lastMIDI = "PC \(program) ch \(settings.channel) (\(label)) · \(clock)"
-        record("MIDI PC \(program) ch \(settings.channel) (\(label)) for \(reason)")
+        lastMIDI = "\(text) ch \(profile.channel) (\(label)) · \(clock)"
+        record("MIDI \(text) ch \(profile.channel) (\(label)) for \(reason)")
     }
 
     private let stampFormat: DateFormatter = {

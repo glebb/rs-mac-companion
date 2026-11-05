@@ -1,0 +1,12 @@
+{
+  "name": "Program Changes",
+  "comment": "One Program Change per category, from the virtual source, for any amp, speaker or app that listens to MIDI.",
+  "destination": "virtual",
+  "channel": 1,
+  "category": {
+    "Clean":  [{"pc": 0}],
+    "Crunch": [{"pc": 1}],
+    "Heavy":  [{"pc": 2}],
+    "Lead":   [{"pc": 3}]
+  }
+}

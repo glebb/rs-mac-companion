@@ -1,0 +1,15 @@
+{
+  "name": "Bandbox Stagehand",
+  "comment": "Describes each song's tones and plays them on Program Change 8-12; Stagehand makes a sound for each.",
+  "destination": "virtual",
+  "channel": 1,
+  "song_load": {"*": [{"song_tones_message": true}]},
+  "song_load_again": true,
+  "category": {
+    "Clean":  [{"pc": 0}],
+    "Crunch": [{"pc": 1}],
+    "Heavy":  [{"pc": 2}],
+    "Lead":   [{"pc": 3}]
+  },
+  "tone_first_program": 8
+}

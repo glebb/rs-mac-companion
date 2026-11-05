@@ -3,8 +3,8 @@
 Real-time tone changes from **Rocksmith 2014 Remastered on macOS**: while you play, it knows which
 song and arrangement you're on, which in-game tone is active, and which of *your* presets that tone
 maps to, so it can drive your own equipment. The **RS Companion** menu-bar app switches presets
-over MIDI to whatever plays your guitar sound (an amp, a speaker or an app that listens to MIDI),
-in four categories: Clean, Crunch, Heavy and Lead.
+over MIDI to whatever plays your guitar sound (an amp, a speaker, a modeller or an app that listens
+to MIDI), in four categories: Clean, Crunch, Heavy and Lead.
 
 It can also describe each song's tones to a tool that makes a sound for each (song tone messages),
 stand in for RockSniffer's stream overlays, and, if you give it an OpenAI API key, ask an AI model
@@ -13,9 +13,10 @@ which songs should sound Crunch or Heavy (experimental).
 **Scope.** RS Companion's job is to know what Rocksmith is doing and report it in standard forms
 that aren't tied to any device: Program Changes, a documented SysEx message, RockSniffer's overlay
 API, and JSON lines or UDP from the external mode. Every output beyond the Program Changes is
-optional and off by default. Mapping to particular gear is up to whatever receives the output:
-[Bandbox Stagehand](https://github.com/glebb/bandbox-stagehand), for example, maps song tone
-messages to the JBL BandBox. A new device or tool should need no changes in RS Companion.
+optional and off by default. What's sent to particular gear is a [device profile](docs/device-profiles.md),
+a JSON file: one comes with the app for the Line 6 HX Stomp, and one for
+[Bandbox Stagehand](https://github.com/glebb/bandbox-stagehand), which maps song tone messages to the
+JBL BandBox. A new device or tool should need no changes in RS Companion.
 
 It reads the game's memory (read-only, data only) and its song files. It never touches the game's
 code; it only adds one library load to the game executable (like the usual custom-song patch).
@@ -108,25 +109,24 @@ Start RS Companion and Rocksmith (any order) and pick a song. The menu-bar windo
   before that comes from the game's on-screen tone text, up to ~1 s late; after that every change
   is on time, slightly early);
 - the song, artist and part, and every tone of the part with its tags and category (Clean,
-  Crunch, Heavy, Lead) and the Program Change it sends; the active tone is highlighted;
+  Crunch, Heavy, Lead) and what it sends; the active tone is highlighted;
 - with [AI song classification](#ai-song-classification-experimental) on, what the AI model says
   about the song;
 - the last MIDI message, **Pause MIDI** and **Resend**.
 
-MIDI comes from a virtual source named **Rocksmith Companion**; most MIDI apps and devices see it
-without setup. A Program Change is sent only when the category changes.
+What's sent, and where, is the [device profile](docs/device-profiles.md) chosen in Settings. Out of
+the box that's a Program Change per category from a virtual source named **Rocksmith Companion**,
+which most MIDI apps see without setup. It's sent only when the category changes.
 
 **Changing a tone's category**: click its badge and pick one. It applies to that tone in every
 part of the song, is saved in your [presets](#presets) and switches at once if the tone is playing.
 Changed tones show a pencil and what they'd be automatically; ↺ puts them back to automatic.
 
 **Settings** (gear icon):
-- what to send: Program Change 0–3 or 4–7 for Clean, Crunch, Heavy, Lead, or your own number per
-  category; the MIDI channel;
+- the [device profile](docs/device-profiles.md): what to send and where;
 - how early to switch, to cover the time your gear needs (the game picks it up within a second);
 - the Rocksmith folder, install / update / uninstall;
 - AI song classification and its OpenAI API key (off by default; see below);
-- song tone messages (off by default; see below);
 - stream overlays (below);
 - open at login (install the app in /Applications first).
 
@@ -163,8 +163,8 @@ about once; [`classify_songs.py`](#developer-tools) can fill it for a whole libr
 ### Song tone messages
 
 Four categories are coarse: every Clean tone sounds the same, with or without the song's chorus
-or delay. With **Describe each song's tones** on (Settings › Song tone messages), RS Companion
-sends one SysEx message as a song loads. The message describes each of the song's tones in
+or delay. With a [device profile](docs/device-profiles.md) that uses them, such as **Bandbox
+Stagehand**, RS Companion sends one SysEx message as a song loads. The message describes each of the song's tones in
 Rocksmith's own terms:
 - its category;
 - its delay, modulation and reverb, with their kinds and settings;
@@ -172,7 +172,7 @@ Rocksmith's own terms:
   the AI's answer if it has one.
 
 During the song, Program Change 8–12 then play those tones instead of the category Program
-Changes. You can set the first number, or switch these Program Changes off and keep the
+Changes. The profile sets the first number (`tone_first_program`); leave it out to keep the
 category ones.
 
 A tool that receives the message makes a sound for each tone from your own sounds.
@@ -418,6 +418,7 @@ with it):
 ./tests/run_installer_test.sh # the app's installer on a copy of the game executable (seconds)
 ./tests/run_events_test.sh    # the game libraries' events for very large songs: valid JSON, whole parts (a second; no game needed)
 ./tests/run_song_tones_test.sh # song tone messages: the SysEx at song load, then its Program Changes (~50 s; quit RS Companion first)
+./tests/run_profile_test.sh   # device profiles: the format, then a profile sending straight to a test MIDI device (~60 s; quit RS Companion first)
 ./tests/run_overlay_test.sh   # the stream overlays: RockSniffer's API, addon pages, OBS files (~35 s; quit RS Companion first)
 ./tests/run_standin_test.sh   # rstone.py + rsprobe in a stand-in game (~70 s)
 ./tests/run_classify_test.sh  # classify_songs.py with a stand-in for the API, on some songs from your index (seconds)

@@ -1,7 +1,7 @@
 import Foundation
 
-/// The four tone categories the companion switches between; Settings says which MIDI
-/// Program Change each one sends.
+/// The four tone categories the companion switches between; the device profile says what each
+/// one sends.
 enum Category: Int, CaseIterable {
     case clean = 0, crunch, heavy, lead
 

@@ -105,7 +105,7 @@ struct CompanionView: View {
                     Spacer()
                     Button("Quit") { NSApp.terminate(nil) }
                 }
-                if let problem = companion.problem {
+                if let problem = companion.problem ?? companion.profileError ?? companion.outputProblem {
                     Text(problem).font(.caption).foregroundStyle(.red)
                 }
                 if let error = companion.presetsError {
@@ -232,7 +232,7 @@ struct CompanionView: View {
         } label: {
             HStack(spacing: 3) {
                 if row.overridden { Image(systemName: "pencil") }
-                Text("\(row.category.name) · PC \(companion.program(for: row.category))")
+                Text("\(row.category.name) · \(companion.label(for: row.category))")
             }
             .font(.caption.weight(active ? .semibold : .regular))
         }

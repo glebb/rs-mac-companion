@@ -10,7 +10,7 @@
     "Then artists can change the result of 3 or 4 for a whole band, e.g. {\"Bon Jovi\": {\"Heavy\": \"Crunch\"}}.",
     "Where artists has nothing for it, the app's AI song classification may (ai_classified.json); 'ai_rejected' lists songs it may not.",
     "rstone re-reads this file while running, so edits apply on the next tone change.",
-    "The companion app switches between four categories (Clean, Crunch, Heavy, Lead; MIDI Program Change 0-3).",
+    "The companion app switches between four categories (Clean, Crunch, Heavy, Lead); its device profile says what each sends.",
     "Its overrides use those names; 'categories' says which category every other preset name means.",
     "Song tone messages: 'styles' labels a song by its heaviness (0-1, see songs.csv), the last whose 'from' it reaches;",
     "'song_styles' names one for a song key or an artist, e.g. {\"AC/DC\": \"Classic rock\", \"skid18an\": \"Metal\"}.",

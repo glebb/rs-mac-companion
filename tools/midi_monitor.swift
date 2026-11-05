@@ -1,12 +1,15 @@
 // Prints MIDI messages from sources whose name contains a text (default "Rocksmith Companion"),
 // one line each: time, source, bytes and a label (a SysEx message: its bytes as text). Connects to
-// matching sources as they appear.
+// matching sources as they appear. With --device it is a MIDI device instead: a destination of
+// that name, for what a device profile sends straight to it.
 // Build: swiftc -O tools/midi_monitor.swift -o build/midi_monitor
 // Usage: build/midi_monitor ["source name part"]
+//        build/midi_monitor --device "destination name"
 import CoreMIDI
 import Foundation
 
-let match = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "Rocksmith Companion"
+let device = CommandLine.arguments.count > 2 && CommandLine.arguments[1] == "--device" ? CommandLine.arguments[2] : nil
+let match = device == nil && CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "Rocksmith Companion"
 var client = MIDIClientRef()
 var port = MIDIPortRef()
 var connected = Set<MIDIEndpointRef>()
@@ -30,9 +33,7 @@ func connectMatching() {
     }
 }
 
-MIDIClientCreateWithBlock("midi-monitor" as CFString, &client) { _ in DispatchQueue.main.async { connectMatching() } }
-MIDIInputPortCreateWithProtocol(client, "in" as CFString, ._1_0, &port) { list, context in
-    let source = MIDIEndpointRef(UInt32(truncatingIfNeeded: Int(bitPattern: context)))
+func show(_ list: UnsafePointer<MIDIEventList>, from sourceName: String) {
     for packet in list.unsafeSequence() {
         let words = Array(packet.words())
         var w = 0
@@ -46,7 +47,7 @@ MIDIInputPortCreateWithProtocol(client, "in" as CFString, ._1_0, &port) { list, 
                 if status <= 1 { sysex = [] }
                 sysex += bytes.prefix(n).map { UInt8($0 & 0x7F) }
                 if status == 0 || status == 3 {
-                    print("\(time) \(name(source)): SysEx \(sysex.count) bytes: " + String(decoding: sysex, as: UTF8.self))
+                    print("\(time) \(sourceName): SysEx \(sysex.count) bytes: " + String(decoding: sysex, as: UTF8.self))
                     fflush(stdout)
                 }
                 w += 2
@@ -60,7 +61,7 @@ MIDIInputPortCreateWithProtocol(client, "in" as CFString, ._1_0, &port) { list, 
                 case 0x90: label = "Note On \(d1) ch \(channel)"
                 default: label = String(format: "status %02X", status)
                 }
-                print("\(time) \(name(source)): \(label)")
+                print("\(time) \(sourceName): \(label)")
                 fflush(stdout)
                 w += 1
             default:
@@ -69,7 +70,19 @@ MIDIInputPortCreateWithProtocol(client, "in" as CFString, ._1_0, &port) { list, 
         }
     }
 }
-connectMatching()
-print("watching MIDI sources matching \"\(match)\"")
+
+if let device {
+    MIDIClientCreateWithBlock("midi-monitor" as CFString, &client, nil)
+    var destination = MIDIEndpointRef()
+    MIDIDestinationCreateWithProtocol(client, device as CFString, ._1_0, &destination) { list, _ in show(list, from: device) }
+    print("listening as MIDI device \"\(device)\"")
+} else {
+    MIDIClientCreateWithBlock("midi-monitor" as CFString, &client) { _ in DispatchQueue.main.async { connectMatching() } }
+    MIDIInputPortCreateWithProtocol(client, "in" as CFString, ._1_0, &port) { list, context in
+        show(list, from: name(MIDIEndpointRef(UInt32(truncatingIfNeeded: Int(bitPattern: context)))))
+    }
+    connectMatching()
+    print("watching MIDI sources matching \"\(match)\"")
+}
 fflush(stdout)
 RunLoop.main.run()

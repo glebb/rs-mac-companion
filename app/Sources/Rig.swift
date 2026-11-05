@@ -120,7 +120,13 @@ enum Rig {
     struct Delay { let key: String; let time: Double?; let mix: Double?; let feedback: Double? }
     struct Reverb { let key: String; let mix: Double? }
     struct Modulation { let kind: String; let key: String; let mix: Double?; let rate: Double? }
-    struct Effects { var delay: Delay?; var reverb: Reverb?; var mod: Modulation? }
+    struct Effects {
+        var delay: Delay?; var reverb: Reverb?; var mod: Modulation?
+        /// What a device profile switches: delay, reverb and the modulation's kind.
+        var kinds: Set<String> {
+            Set((delay != nil ? ["delay"] : []) + (reverb != nil ? ["reverb"] : []) + (mod.map { [$0.kind] } ?? []))
+        }
+    }
 
     /// Modulation by words in the gear key, first match wins.
     static let modulation: [(word: String, kind: String)] = [

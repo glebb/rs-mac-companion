@@ -1,7 +1,7 @@
 # Song tone messages
 
-With **Describe each song's tones** on (Settings › Song tone messages, `"song_tones": true` in
-`rscompanion.json`), RS Companion tells MIDI listeners about a song's tones as it loads, so a
+With a [device profile](device-profiles.md) that sends it, such as **Bandbox Stagehand**
+(a `song_tones_message` step in `song_load`), RS Companion tells MIDI listeners about a song's tones as it loads, so a
 tool can prepare a sound for each one. It then plays those sounds with Program Changes during
 the song. The message describes the tones in Rocksmith's own terms and makes no assumptions
 about the receiving device: each receiver maps it to its own gear.
@@ -9,13 +9,13 @@ about the receiving device: each receiver maps it to its own gear.
 BandBox Trio. The format is meant to be just as usable by a modeller, a DAW script, a plugin
 host or a logger.
 
-The setting is off by default. With it off, RS Companion sends only the category Program
-Changes, as described in the [README](../README.md#use).
+The **Program Changes** profile, the default, doesn't send it: RS Companion then sends only the
+category Program Changes, as described in the [README](../README.md#use).
 
 ## On the wire
 
-- **Source:** the virtual MIDI source **Rocksmith Companion**. SysEx has no channel. The Program
-  Changes go on the channel set in Settings.
+- **Source:** the profile's destination, for Stagehand the virtual MIDI source **Rocksmith
+  Companion**. SysEx has no channel. The Program Changes go on the profile's channel.
 - **Message:** one System Exclusive message. Its first byte after F0 is `0x7D`, the
   manufacturer ID set aside for non-commercial use, and the rest is JSON text (UTF-8, with
   anything outside 7-bit ASCII written as `\u` escapes, so every byte is under 0x80).
@@ -33,7 +33,7 @@ Changes, as described in the [README](../README.md#use).
   milliseconds. A receiver has that much time to get ready. The first tone's Program Change
   comes right after the message, so a receiver should either handle it once it's ready or
   play a fallback until then.
-- **Again for the same song** when the mapping in `presets.json` changes (a tone's category
+- **Again for the same song**, if the profile has `song_load_again`, when the mapping in `presets.json` changes (a tone's category
   can change), when an AI answer for the song arrives (its tones' categories and its style can
   change, a few seconds after the first message), when the first program changes, or when RS
   Companion starts while a song is loaded.
@@ -98,10 +98,10 @@ driven the tone should be.
 ### Program Changes
 
 During the song, tone *i* plays on Program Change `program` (by default 8 + *i*, so 8–12).
-Settings › Song tone messages sets the first number. As always, a Program Change is sent only
+The profile's `tone_first_program` sets the first number. As always, a Program Change is sent only
 when the program changes.
 
-With **Play them with Program Changes** off (`"song_tone_programs": false`), the message is
+With no `tone_first_program` in the profile, the message is
 still sent, but the four category Program Changes go on as usual. Use that when the message
 is only for information (a logger, a display), or when the device that receives the Program
 Changes doesn't know about song tones.

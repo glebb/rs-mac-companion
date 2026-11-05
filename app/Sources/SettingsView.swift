@@ -1,7 +1,7 @@
 import ServiceManagement
 import SwiftUI
 
-/// MIDI output, lead time and launch at login. Changes apply at once.
+/// Device profile, lead time and launch at login. Changes apply at once.
 struct SettingsView: View {
     @ObservedObject var companion: Companion
     let done: () -> Void
@@ -18,44 +18,21 @@ struct SettingsView: View {
             }
 
             section("MIDI output") {
-                Picker("Clean, Crunch, Heavy, Lead", selection: binding(\.target)) {
-                    ForEach(Settings.Target.allCases) { Text($0.rawValue).tag($0) }
+                Picker("Device profile", selection: Binding(get: { companion.settings.profile ?? Profile.defaultID },
+                                                            set: { companion.chooseProfile($0) })) {
+                    ForEach(companion.profiles) { Text($0.name).tag($0.id) }
                 }
-                if companion.settings.target == .custom {
-                    ForEach(Category.allCases, id: \.self) { c in
-                        Stepper(value: programBinding(c), in: 0...127) {
-                            Text("\(c.name): Program Change \(companion.settings.program(for: c))")
-                        }
-                    }
+                Text(companion.profile.summary).font(.caption).foregroundStyle(.secondary)
+                if let problem = companion.profileError ?? companion.outputProblem {
+                    Text(problem).font(.caption).foregroundStyle(.red)
                 }
-                Picker("MIDI channel", selection: binding(\.channel)) {
-                    ForEach(1...16, id: \.self) { Text("\($0)").tag($0) }
+                HStack {
+                    Text("A profile says what's sent for each song and tone. Add or edit one as a JSON file.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Show Profiles") { open(companion.profilesFolder) }
                 }
-                Text("Sent from the virtual MIDI source \"Rocksmith Companion\". Choose it as the MIDI input "
-                     + "of your amp, speaker or app if it doesn't listen to all sources.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-
-            section("Song tone messages") {
-                Toggle("Describe each song's tones (SysEx)", isOn: binding(\.songTones))
-                Text("When a song loads, a SysEx message describes its tones: each one's category and its delay, "
-                     + "modulation and reverb as Rocksmith has them, and the song's style by its heaviness (\"styles\" "
-                     + "and \"song_styles\" in presets.json). A tool that makes a sound per song tone can use it, "
-                     + "e.g. Bandbox Stagehand.")
-                    .font(.caption).foregroundStyle(.secondary)
-                if companion.settings.songTones {
-                    Toggle("Play them with Program Changes", isOn: binding(\.songTonePrograms))
-                    if companion.settings.songTonePrograms {
-                        Stepper(value: binding(\.songToneFirstProgram), in: 0...(128 - SongTones.maxTones)) {
-                            Text("Program Change \(companion.settings.songToneFirstProgram)–"
-                                 + "\(companion.settings.songToneFirstProgram + SongTones.maxTones - 1), one per song tone")
-                        }
-                    } else {
-                        Text("The categories' Program Changes play as without the message.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                if companion.settings.songTones, let made = companion.madeTones {
+                if let made = companion.madeTones {
                     Text(made.summary).font(.caption).lineLimit(3)
                 }
             }
@@ -222,14 +199,6 @@ struct SettingsView: View {
 
     private func open(_ url: URL?) {
         if let url { NSWorkspace.shared.open(url) }
-    }
-
-    private func programBinding(_ c: Category) -> Binding<Int> {
-        Binding(get: { companion.settings.program(for: c) }, set: { value in
-            var s = companion.settings
-            s.programs[c.rawValue] = value
-            companion.update(s)
-        })
     }
 
     private func chooseGameDir() {

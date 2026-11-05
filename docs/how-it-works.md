@@ -26,8 +26,9 @@ Rocksmith2014 (x86_64, Rosetta; or RS Re-ARMed, arm64)
 RS Companion.app (app/, menu bar)
       │ presets.json → category (Clean / Crunch / Heavy / Lead)   rscompanion.json → settings
       │ song's archive → each tone's effects, the song's style (song tone messages, optional)
-      ▼  virtual MIDI source "Rocksmith Companion": Program Changes, song tone SysEx
-your MIDI-controlled amp, speaker or app (e.g. Bandbox Stagehand for song tones)
+      │ profiles/*.json → what to send and where (device profile)
+      ▼  virtual MIDI source "Rocksmith Companion", or straight to a MIDI destination
+your MIDI-controlled amp, speaker, modeller or app (e.g. HX Stomp, Bandbox Stagehand)
 ```
 
 ### The dylib ([native/rscompanion.c](../native/rscompanion.c))
@@ -104,9 +105,10 @@ catch up, and tells it whether the game (with the dylib) is running.
 | `EventSocket.swift` | binds `events.sock`, decodes events on a background queue, delivers them on the main thread |
 | `Presets.swift` | the mapping in `presets.json` and the AI answers, evaluated exactly like `presets.py` (checked on all 17,542 tone slots of a library) |
 | `Category.swift` | Clean, Crunch, Heavy, Lead |
-| `Settings.swift` | `rscompanion.json`: MIDI channel, Program Change per category, lead time, stream overlays, song tone messages and their Program Changes, AI classification and its model |
+| `Settings.swift` | `rscompanion.json`: device profile, lead time, stream overlays, AI classification and its model |
+| `Profile.swift` | device profiles in `profiles/`: what's sent on song load and per tone, and where; [device-profiles.md](device-profiles.md) |
 | `AIClassifier.swift` | AI song classification: asks OpenAI's Responses API about a song (the prompt and answer schema of `classify_songs.py`), saves the answer in `ai_classified.json`; the API key in the keychain |
-| `MIDIOut.swift` | a CoreMIDI virtual source "Rocksmith Companion"; Program Change and SysEx as MIDI 1.0 UMP, held for the first second so listeners can connect |
+| `MIDIOut.swift` | plays a profile's steps in order as MIDI 1.0 UMP: from a CoreMIDI virtual source "Rocksmith Companion" or straight to a MIDI destination; held for the first second so listeners can connect |
 | `Rig.swift` | a song's gear read from its archive: each tone's tags, drive and effects, the song's tuning and heaviness; the same rules as `rig.py` (checked identical on all 2,768 songs of a library) |
 | `SongTones.swift` | song tone messages: the SysEx (manufacturer 0x7D, then JSON, version 2) sent when a song loads, describing each tone in Rocksmith's terms for any tool, and a Program Change per tone (8–12 by default). The format: [song-tone-messages.md](song-tone-messages.md) |
 | `Companion.swift` | state, mapping, overrides, when to send, AI requests and their answers, install status and warnings |
@@ -149,20 +151,19 @@ that uses it** (all `parts` slots with the same tone key), written to `songs`. A
 a pencil and its automatic category; reset (↺) removes the override in all parts (and any `tones`
 entry for that key). `presets.json` edits by hand are picked up within a second.
 
-**Sending**: a Program Change only when the active tone's **category** changes (two tones mapped
-to Heavy send once: many devices drop unsaved edits on every preset change). An app started
-mid-song sends the current category once from the heartbeat. Changing the MIDI settings or the
-active tone's mapping resends. Pause stops sending; Resend sends the current category again.
+**Sending**: what the [device profile](device-profiles.md) says, only when what the active tone
+sends changes (two tones mapped to Heavy send once: many devices drop unsaved edits on every preset
+change). An app started mid-song sends the current tone once from the heartbeat. Changing the profile
+or the active tone's mapping resends. Pause stops sending; Resend sends the current tone again.
 
 **Settings** (`rscompanion.json`, shared with the dylib):
 
 ```json
-{"lead_ms": 100, "midi_channel": 1, "programs": {"Clean": 0, "Crunch": 1, "Heavy": 2, "Lead": 3}}
+{"lead_ms": 100, "profile": "program-changes"}
 ```
 
-`programs` presets in the app: 0–3 (default), 4–7, or custom. `overlay_enabled` (default false)
-and `overlay_port` (9938) switch the stream overlays; `song_tones` (false), `song_tone_programs`
-(true) and `song_tone_first_program` (8) the song tone messages; `ai_classify` (false) and
+`profile` is a file in `profiles/` without `.json`. `overlay_enabled` (default false)
+and `overlay_port` (9938) switch the stream overlays; `ai_classify` (false) and
 `ai_model` (`gpt-6-luna`) the AI classification, whose API key is kept in the login keychain, not
 here (the dylib reads this file too).
 The dylib re-reads `lead_ms` and `overlay_enabled` within a second (no game restart).
@@ -277,6 +278,7 @@ of the game executable. `tools/add_load_dylib.py` does step 3 by hand for any ex
 | `tests/run_overlay_test.sh` | stand-in → dylib → app with stream overlays: RockSniffer's API (`GET /` with the song details read from `songs.psarc`, `/addons`, `/storage`), the text files and album art, the state after the game is gone |
 | `tests/run_app_test.sh` | stand-in → dylib → app → MIDI (`tools/midi_monitor.swift`), with a song override, a live `presets.json` edit, custom MIDI settings and a restart catch-up |
 | `tests/run_song_tones_test.sh` | stand-in → dylib → app with song tone messages on: the SysEx message at song load (style, tones in order of first use with their categories and effects) and Program Change 8 and 9 |
+| `tests/run_profile_test.sh` | the profile format and its rules, then stand-in → dylib → app with a profile sending straight to a test MIDI device: the song load sequence with its wait, the tones' snapshot and effect CCs, nothing on the virtual source |
 | `tests/run_installer_test.sh` | the installer on a copy of the game executable: fresh install, repeat, prototype migration, update, uninstall back to the original bytes, missing game, a damaged executable |
 | `tests/run_events_test.sh` | `rscore.c`'s events from `tests/events_harness.c`, for an ordinary song and one with 16 arrangements and every name as long as allowed: valid JSON, only whole parts (as many as fit), the log saying how many |
 | `tests/run_ai_app_test.sh` | `AIClassifier.swift` and `Presets.swift` against `tests/stub_responses.py` (a stand-in for OpenAI): the request (key, model, the script's prompt, strict schema), the saved answer, the song's remap and style, rejecting and using again, a wrong key |

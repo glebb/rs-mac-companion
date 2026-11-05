@@ -17,6 +17,7 @@ ARCHS=$(uname -m)
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp ../presets.default.json "$APP/Contents/Resources/"  # seeds DATA_DIR/presets.json if missing
+cp -R ../profiles "$APP/Contents/Resources/profiles"  # seeds DATA_DIR/profiles with what's missing
 cp -R ../third_party/rocksniffer-addons "$APP/Contents/Resources/addons"
 # The in-game library: x86_64 for the Steam game (Rosetta), arm64 for RS Re-ARMed (native port).
 clang -arch x86_64 -arch arm64 -O2 -Wall -dynamiclib -install_name @executable_path/librscompanion.dylib \
