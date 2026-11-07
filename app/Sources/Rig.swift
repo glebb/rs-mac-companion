@@ -115,6 +115,17 @@ enum Rig {
         return d < 1.0 / 3 ? "clean" : d < 2.0 / 3 ? "crunch" : "heavy"
     }
 
+    /// A tone's drive for the record and its category. The AI's gain_offset moves a distorted tone
+    /// by offset/3, as Presets.shift does (clean tones stay put, so the song's parts stay apart), and
+    /// the category has the last word: whatever put a tone in Clean, Crunch or Heavy, a setting or an
+    /// override, its drive stays in that band. Lead has no band.
+    static func corrected(_ drive: Double, offset: Double, category: Category) -> Double {
+        let shifted = drive < 1.0 / 3 ? drive : min(max(drive - offset / 3, 0), 1)
+        guard category != .lead else { return shifted }
+        let low = Double(category.rawValue) / 3
+        return min(max(shifted, low), low + 1.0 / 3)
+    }
+
     // MARK: Effects
 
     struct Delay { let key: String; let time: Double?; let mix: Double?; let feedback: Double? }
@@ -155,6 +166,19 @@ enum Rig {
             }
         }
         return fx
+    }
+
+    /// What a device profile's knobs read (Profile.knobSources), as the song's gear sets them; what
+    /// the tone doesn't have is left out. The drive isn't here: it depends on the song (corrected).
+    static func values(_ tone: Tone) -> [String: Double] {
+        let fx = effects(tone), amp = tone.gear["Amp"]
+        let all: [String: Double?] = [
+            "gain": amp.flatMap(gain), "bass": amp?.knobs["Bass"], "mid": amp?.knobs["Mid"],
+            "treble": amp?.knobs["Treble"], "presence": amp?.knobs["Pres"],
+            "delay_time": fx.delay?.time, "delay_mix": fx.delay?.mix, "delay_feedback": fx.delay?.feedback,
+            "reverb_mix": fx.reverb?.mix, "modulation_mix": fx.mod?.mix, "modulation_rate": fx.mod?.rate,
+        ]
+        return all.compactMapValues { $0 }
     }
 
     // MARK: Songs

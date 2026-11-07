@@ -49,10 +49,12 @@ settings are ignored.
 | `destination` | default `"virtual"` | `"virtual"` sends from the virtual source **Rocksmith Companion**, for apps that listen to it. Any other text is the name of a MIDI destination, as Audio MIDI Setup shows it: sent straight there |
 | `channel` | default 1 | 1–16, for `pc` and `cc` steps |
 | `song_load` | optional | a sequence per song style, run as a song loads, about 3.3 s before its audio. `"*"` is any style without its own. Styles are in [presets.json](song-tone-messages.md#styles) |
+| `amp_load` | optional | a sequence per game amp (`"Amp_CA100"`, as `tone_catalog.csv` names them), run in place of `song_load`. Of the amps listed, the one the arrangement plays longest counts, amps with the same sequence adding up. A song with none of them uses `song_load` |
 | `song_load_again` | default `false` | also run it when the song is described anew: its mapping changed, or an AI answer arrived a few seconds in. Off, a song's load sequence runs once, so a device isn't switched during the song. The catch: a late change of style only applies the next time the song loads |
 | `category` | optional | a sequence per category (Clean, Crunch, Heavy, Lead), run when the active tone changes |
 | `tone_first_program` | optional | song tone *i* plays on this Program Change + *i*, instead of its category's sequence. The song tone message names these numbers |
 | `effects` | optional | effect → CC. After each tone's sequence, every CC listed here goes out: 127 if the tone has that effect, else 0. Kinds: `delay`, `reverb`, `chorus`, `flanger`, `phaser`, `tremolo`, `vibe`. Kinds that share a CC count as one switch |
+| `knobs` | optional | CCs that follow the tone's settings: see [Knobs](#knobs) |
 
 Keys are checked: a misspelt one is an error rather than something that silently does nothing.
 
@@ -68,12 +70,51 @@ A sequence is a list of steps, sent in order. A later sequence waits for an earl
 | `{"bytes": "F0 7E 7F 06 01 F7"}` | one MIDI message in hex, sent as it is, on the channel it names |
 | `{"song_tones_message": true}` | the [song tone message](song-tone-messages.md); use it in `song_load` |
 
+### Knobs
+
+A knob is a CC that follows one of the tone's settings, so a device can do more than switch between
+fixed sounds:
+
+```json
+"knobs": [
+  {"cc": 30, "from": "drive"},
+  {"cc": 31, "from": "delay_time", "range": [0, 1000]},
+  {"cc": 32, "from": "reverb_mix", "default": 0}
+]
+```
+
+| Key | | |
+|---|---|---|
+| `cc` | required | 0–127. Not one used in `effects` or by another knob |
+| `from` | required | one of the settings below |
+| `range` | default below | the setting's value at CC 0, then at CC 127. Values outside it stop at the end. High to low turns it round |
+| `default` | optional | 0–127, sent for a tone without the setting. Without it nothing is sent, and the device keeps the last value |
+
+| `from` | Default range | |
+|---|---|---|
+| `drive` | 0–1 | how distorted the tone should sound: see below |
+| `gain` | 0–100 | the amp's gain knob, as the song sets it |
+| `bass`, `mid`, `treble`, `presence` | 0–100 | the amp's knobs. Not every amp has them all |
+| `delay_time` | 0–2000 | in ms |
+| `delay_mix`, `delay_feedback` | 0–100 | |
+| `reverb_mix` | 0–100 | |
+| `modulation_mix` | 0–100 | |
+| `modulation_rate` | 0–100 | as the pedal has it, which is 0–10 on some |
+
+`drive` takes the amp, its gain and the song's pedals (`drive` in `tone_catalog.csv`), so it means the
+same on every amp. The song's AI `gain_offset` lowers it for a distorted tone. It then stays in the
+band of the tone's category: Clean up to 1/3, Crunch up to 2/3, Heavy above, and Lead anywhere. So
+changing a tone's category also changes its drive. `gain` is the knob as it stands, with none of this.
+
+Knobs go out after the category's steps and before the effect CCs, so an effect comes on already set.
+A tone the song's files don't list has no settings, so only knobs with a `default` go out for it.
+
 ### When things are sent
 
 - A tone's messages go out only when they change: many devices drop unsaved edits on a preset
   change, so the same thing is never sent twice in a row. A `song_load` sequence that sends more
   than the song tone message counts as resetting the device, so the first tone goes out anyway.
-- Song load sequences, `tone_first_program` and `effects` need the song's gear, read from its
+- Song load sequences, `tone_first_program`, `effects` and `knobs` need the song's gear, read from its
   files. A tone the song's files don't list has its effects off.
 - **Pause MIDI** holds everything. On resume, the song's load sequence runs if it was missed, then
   the tone.

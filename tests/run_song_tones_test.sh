@@ -59,6 +59,13 @@ else:
         problems.append(f"unexpected message header: { {k: msg.get(k) for k in ('v', 'kind', 'song', 'arrangement', 'style', 'heaviness')} }")
     if tones != [(8, "SelfTrap_clean"), (9, "SelfTrap_dist")]:
         problems.append(f"tones: {tones}")
+    if msg.get("main_amp") != "Amp_TW40":
+        problems.append(f"main_amp: {msg.get('main_amp')}")
+    for t in msg["tones"]:
+        if t.get("amp", {}).get("gear") != "Amp_TW40" or t["amp"].get("gain") != 83 or not 0 <= t.get("drive", -1) <= 1:
+            problems.append(f"{t['key']}: amp {t.get('amp')}, drive {t.get('drive')}")
+    if not msg["tones"][0]["drive"] < msg["tones"][1]["drive"]:
+        problems.append(f"drives: {[t['drive'] for t in msg['tones']]}")
     for t in msg["tones"]:
         if "delay" in t["effects"] or "modulation" in t["effects"]:
             problems.append(f"{t['key']}: expected no delay or modulation, got {t['effects']}")
