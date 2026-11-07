@@ -51,6 +51,13 @@ import Foundation
         check(stomp.toneSteps(category: .clean, toneIndex: nil, effectKinds: ["ring modulator"]).contains(.cc(21, 0)),
               "an unmapped kind switches nothing on")
 
+        // HX Stomp by amp: the song's amp picks the preset, the style only when no preset has it.
+        let amps = load(dir, "hx-stomp-amps")
+        check(amps.songLoadSteps(style: "Metal", amps: [("Amp_GB100", 60)]) == [.pc(3), .wait(500)], "the amp's preset")
+        check(amps.songLoadSteps(style: "Metal", amps: [("Amp_Unknown", 60)]) == [.pc(2), .wait(500)], "the style's preset")
+        check(amps.toneSteps(category: .lead, toneIndex: 0, effectKinds: [], knobValues: ["drive": 1, "reverb_mix": 50]).prefix(4)
+              == [.cc(69, 2), .cc(20, 127), .cc(26, 127), .cc(35, 64)], "Stomp knobs")
+
         // Amp load: the listed amp that plays longest, amps on one sequence adding up, else the style.
         let byAmp = try! Profile.parse(Data(#"""
             {"name": "x", "song_load": {"*": [{"pc": 1}]},

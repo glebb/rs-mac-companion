@@ -8,7 +8,7 @@ Choose one in Settings › MIDI output. **Show Profiles** opens the folder, `pro
 folder. A new file there appears in the list, and edits apply within a couple of seconds. If a
 file can't be used, Settings says why and the last good version stays in use.
 
-Three come with the app, and are copied to the folder if they're missing, so you can edit them.
+Four come with the app, and are copied to the folder if they're missing, so you can edit them.
 To get the app's current version of one, delete the file and restart the app.
 
 | Profile | For |
@@ -16,6 +16,7 @@ To get the app's current version of one, delete the file and restart the app.
 | `program-changes.json` | Any amp, speaker or app that listens to MIDI: Program Change 0–3 per category, from the virtual source |
 | `stagehand.json` | [Bandbox Stagehand](https://github.com/glebb/bandbox-stagehand): song tone messages, and Program Change 8–12 for the song's tones |
 | `hx-stomp.json` | A Line 6 HX Stomp, sent straight to it over USB: see [below](#hx-stomp) |
+| `hx-stomp-amps.json` | The same with a preset per amp, and the tone's settings by CC: see [the presets](../hx-stomp-presets/README.md#a-preset-per-amp) |
 
 If `rscompanion.json` has no `"profile"` yet, RS Companion turns its older MIDI settings
 (`midi_channel`, `programs`, `song_tones`, `song_tone_programs`, `song_tone_first_program`) into a
@@ -107,6 +108,7 @@ band of the tone's category: Clean up to 1/3, Crunch up to 2/3, Heavy above, and
 changing a tone's category also changes its drive. `gain` is the knob as it stands, with none of this.
 
 Knobs go out after the category's steps and before the effect CCs, so an effect comes on already set.
+That order matters on an HX Stomp, which loses a CC sent just before a snapshot change.
 A tone the song's files don't list has no settings, so only knobs with a `default` go out for it.
 
 ### When things are sent

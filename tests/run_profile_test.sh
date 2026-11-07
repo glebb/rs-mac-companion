@@ -96,7 +96,7 @@ if drive != [42, 59]:  # clean: the top of the clean band, 1/3. Crunch: 0.57 les
 virtual = [l for l in open(sys.argv[2]) if "Program Change" in l or "Control Change" in l or "SysEx" in l]
 if virtual:
     problems.append(f"sent on the virtual source too: {virtual[:2]}")
-for name in ("program-changes.json", "stagehand.json", "hx-stomp.json"):
+for name in ("program-changes.json", "stagehand.json", "hx-stomp.json", "hx-stomp-amps.json"):
     if not os.path.exists(os.path.join(sys.argv[3], name)):
         problems.append(f"{name} wasn't put in the profiles folder")
 print("PASS" if not problems else "FAIL: " + "; ".join(problems))

@@ -129,8 +129,8 @@ order:
 The presets were played on a real Stomp through RS Companion and sounded right (5 November 2026).
 That was a listening test, so the points below weren't checked one by one.
 
-- **The two MIDI forms come from HX Edit's code, not from a real file.** No example file on this Mac
-  has either one:
+- **The two MIDI forms came from HX Edit's code, not from a real file.** They have since worked on a
+  Stomp, in the [presets per amp](#a-preset-per-amp):
   - MIDI-only bypass: `"@fs_index": 19` with `"@cc": N` in `footswitch`. The nearest real file has
     `@cc` alongside a real footswitch index.
   - Ch Vol on CC 20: `"@controller": 8` with `"@cc": 20` in `controller`.
@@ -147,6 +147,50 @@ That was a listening test, so the points below weren't checked one by one.
 - **Timing after a preset change.** A forum thread warns that CCs sent right after a Program Change
   can be lost while a unit loads a preset (reported on an HX One), so `profiles/hx-stomp.json` waits
   500 ms after each `pc` step. If the first tone of a song is wrong, raise that wait.
+
+## A preset per amp
+
+`amps/` has one preset per Helix amp, for the profile **HX Stomp by amp**. The song's amp picks the
+preset, and the tone's settings arrive by MIDI, so a song plays closer to its Rocksmith tone than the
+three presets above can. `tools/make_stomp_presets.py` makes them from `amps.json`, with Line 6's
+defaults read from the HX Edit install.
+
+Import each file into the slot its name starts with, as above. This overwrites what's in those slots,
+so export your presets first. The chain is Classic Rock's with another amp and its default cab. All 35
+fit, at 64.02 DSP at most, by the same estimate as above.
+
+| CC | Sets | Range |
+|---|---|---|
+| 20 | Ch Vol, for Lead | about +3 dB |
+| 21–25 | Bypass, as above | |
+| 26 | The amp's gain, from the tone's drive | 0.5–8.5; 0.5–6.0 on high-gain amps |
+| 27–30 | Bass, Mid, Treble, Presence | full range. An amp without one ignores it |
+| 31 | Delay time | 0–2 s |
+| 33, 34 | Delay feedback, mix | full range |
+| 35 | Reverb mix | full range |
+| 36 | Chorus mix | full range |
+
+CC 32 is left out: it's MIDI's Bank Select, and Helix Native picks a setlist with it. Snapshots still set the
+compressor, the drive block and a level trim in the cab's Level: +3, +1 and -1 dB. Those trims and the
+gain range are starting points, not measurements.
+
+An arrangement's amp is the one it plays longest. Its other amps play through that preset, so about a
+quarter of arrangements lose an amp for part of the song. DI amps, used for acoustic parts, never pick
+the preset. A song with no preset for its amp uses the preset of its style.
+
+**Checked on a Stomp (7 November 2026, firmware as in HX Edit 3.82):** the three presets imported and
+loaded with every block, and HX Edit lists all their MIDI rows, so the two MIDI forms under
+[Not verified](#not-verified) work. CCs sent to the Stomp set the amp, delay and reverb exactly as the
+table says, with the song load's Program Change, 500 ms wait and a 17-message burst. This was read from
+HX Edit, not heard.
+
+**The order matters.** A CC sent just before a snapshot change, in the same burst, is lost. After the
+change it arrives. So keep the `category` steps first in a tone's messages, as the app does.
+
+**Heard on a Stomp:** a jump from clean to heavy by CC, with a guitar through 02A, sounded smooth. The
+presets other than the first three haven't been on a Stomp.
+
+**Not verified:** the amp gain's range comes from the three presets above, which suggest about 0.05–0.85 for a linear drive.
 
 ## Sources
 
