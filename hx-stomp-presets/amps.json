@@ -1,5 +1,5 @@
 {
-  "_": "The game's amps onto Helix models, from gear.json in rearmed-mods (tonehost/helix), a best guess where the game disguises the amp. slots: the Helix amps from the second bank on, most played first, so a preset stays in its slot when more are added. high_gain: less amp gain for the same drive.",
+  "_": "The game's amps onto Helix models, from gear.json in rearmed-mods (tonehost/helix), a best guess where the game disguises the amp. slots: the Helix amps from the second bank on, most played first, so a preset stays in its slot when more are added.",
   "amps": {
     "Amp_AT120": "AmpUSDoubleNrm",
     "Amp_AT20": "AmpUSPrincess",
@@ -101,6 +101,5 @@
     "AmpCali400Ch1",
     "AmpAguaSledge",
     "AmpSVBeastBrt"
-  ],
-  "high_gain": ["AmpCaliRectifire", "AmpDasBenzinMega", "AmpMandarinRocker", "AmpSoloLeadOD"]
+  ]
 }

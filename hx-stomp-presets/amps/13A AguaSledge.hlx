@@ -30,8 +30,8 @@
       "Gain": {
        "@cc": 26,
        "@controller": 8,
-       "@max": 0.85,
-       "@min": 0.05,
+       "@max": 1,
+       "@min": 0.045,
        "@snapshot_disable": false
       },
       "Mid": {
@@ -92,9 +92,10 @@
      },
      "cab0": {
       "Level": {
-       "@controller": 9,
-       "@max": 6,
-       "@min": -60,
+       "@cc": 37,
+       "@controller": 8,
+       "@max": -3.9,
+       "@min": 0.0,
        "@snapshot_disable": false
       }
      }
@@ -234,7 +235,7 @@
      "Angle": 45.0,
      "Distance": 6.25,
      "HighCut": 9000.0,
-     "Level": 3.0,
+     "Level": 0.0,
      "LowCut": 80.0,
      "Mic": 6,
      "Position": 0.35
@@ -268,7 +269,7 @@
     "outputA": {
      "@model": "HelixStomp_AppDSPFlowOutputMain",
      "@output": 1,
-     "gain": 0.0,
+     "gain": 0.1,
      "pan": 0.5
     },
     "outputB": {
@@ -349,16 +350,6 @@
       "block6": false,
       "block7": false
      }
-    },
-    "controllers": {
-     "dsp0": {
-      "cab0": {
-       "Level": {
-        "@fs_enabled": false,
-        "@value": 3.0
-       }
-      }
-     }
     }
    },
    "snapshot1": {
@@ -379,16 +370,6 @@
       "block6": false,
       "block7": false
      }
-    },
-    "controllers": {
-     "dsp0": {
-      "cab0": {
-       "Level": {
-        "@fs_enabled": false,
-        "@value": 1.0
-       }
-      }
-     }
     }
    },
    "snapshot2": {
@@ -408,16 +389,6 @@
       "block5": false,
       "block6": false,
       "block7": false
-     }
-    },
-    "controllers": {
-     "dsp0": {
-      "cab0": {
-       "Level": {
-        "@fs_enabled": false,
-        "@value": -1.0
-       }
-      }
      }
     }
    },

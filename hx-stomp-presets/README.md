@@ -163,16 +163,54 @@ fit, at 64.02 DSP at most, by the same estimate as above.
 |---|---|---|
 | 20 | Ch Vol, for Lead | about +3 dB |
 | 21–25 | Bypass, as above | |
-| 26 | The amp's gain, from the tone's drive | 0.5–8.5; 0.5–6.0 on high-gain amps |
+| 26 | The amp's gain, from the tone's drive | per amp, from `calibration.json` |
 | 27–30 | Bass, Mid, Treble, Presence | full range. An amp without one ignores it |
 | 31 | Delay time | 0–2 s |
 | 33, 34 | Delay feedback, mix | full range |
 | 35 | Reverb mix | full range |
 | 36 | Chorus mix | full range |
+| 37 | The cab's Level, from the tone's drive | per amp, from `calibration.json` |
 
-CC 32 is left out: it's MIDI's Bank Select, and Helix Native picks a setlist with it. Snapshots still set the
-compressor, the drive block and a level trim in the cab's Level: +3, +1 and -1 dB. Those trims and the
-gain range are starting points, not measurements.
+CC 32 is left out: it's MIDI's Bank Select, and Helix Native picks a setlist with it. Snapshots still set
+the compressor and the drive block.
+
+### Calibration
+
+Amps differ too much for one range. For the same distortion Brit 2204 needs Drive 0.5 and US Deluxe 5.4,
+and an amp can get 35 dB louder with Drive. So `calibration.json` gives each amp its own range of gain,
+and CC 37 follows the tone's drive to hold its level, with the output block taking what the cab's +6 dB
+can't.
+
+`tools/calibrate_stomp.py` measures this in Helix Native, offline, through the saved states of rs-tonehost
+(`tools/measure_helix.m`). The Stomp has the same models, and Native needs no guitar. Run it again after
+a change of amps, then `tools/make_stomp_presets.py`.
+
+- **Dirt** is how far in dB a guitar sits above the level where an amp starts to compress. The presets
+  aim at -10 dB for Clean, 0 for Crunch and +10 for Heavy, at the middle of each category.
+- **The scale** comes from US Deluxe and Brit 2203 in the presets above, which sounded right. A guitar's
+  peaks are taken as -18 dB, from tonehost's logs of playing at about -14 to -20.
+- **The level** is that of Classic Rock's Crunch, -26.5 dB in these terms, with the cab at +2 dB.
+
+The middle 80% of the 29 amps measured, for a tone in the middle of its category:
+
+| | Level before | Level after | Dirt before | Dirt after |
+|---|---|---|---|---|
+| Clean | -41.4 to -23.9 dB | -27.5 to -26.5 dB | -18.0 to +13.9 dB | -10.3 to -3.1 dB |
+| Crunch | -27.9 to -20.4 dB | -26.6 to -25.1 dB | -8.8 to +25.1 dB | -2.2 to +5.8 dB |
+| Heavy | -24.2 to -16.8 dB | -27.5 to -26.6 dB | +2.7 to +35.3 dB | +4.8 to +10.9 dB |
+
+These are computed from the measurements, not measured on a Stomp. A straight line of levels misses the
+amp's real curve by 1.3 dB in the median amp and 2.9 dB at worst.
+
+**What it leaves out:**
+
+- The amp and cab alone are measured. The compressor in Clean and the drive block in Heavy add level and
+  distortion on top, so those two may sit a little high.
+- Native's cab runs full range, while the presets cut below 80 Hz and above 9 kHz.
+- Ch Vol is taken as linear, as above, on amps whose default it had to lower.
+- Six amps have no gain to sweep, as rs-tonehost's states have only a parameter called Drive on the
+  knob: Fullerton Nrm, Grammatico Nrm, Mandarin Bass 200, Matchstick Ch1 and Ch2, and US Dripman Norm.
+  They keep a range of 0.5–8.5 and no level correction.
 
 An arrangement's amp is the one it plays longest. Its other amps play through that preset, so about a
 quarter of arrangements lose an amp for part of the song. DI amps, used for acoustic parts, never pick
@@ -190,7 +228,6 @@ change it arrives. So keep the `category` steps first in a tone's messages, as t
 **Heard on a Stomp:** a jump from clean to heavy by CC, with a guitar through 02A, sounded smooth. The
 presets other than the first three haven't been on a Stomp.
 
-**Not verified:** the amp gain's range comes from the three presets above, which suggest about 0.05–0.85 for a linear drive.
 
 ## Sources
 

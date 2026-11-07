@@ -93,6 +93,7 @@
     {"cc": 33, "from": "delay_feedback"},
     {"cc": 34, "from": "delay_mix"},
     {"cc": 35, "from": "reverb_mix"},
-    {"cc": 36, "from": "modulation_mix"}
+    {"cc": 36, "from": "modulation_mix"},
+    {"cc": 37, "from": "drive"}
   ]
 }

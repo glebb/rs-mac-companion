@@ -7,7 +7,8 @@ Writes hx-stomp-presets/amps/*.hlx, one preset per Helix amp, named by its slot,
 profiles/hx-stomp-amps.json. --first N makes only the first N, to try them. Every preset is the
 chain of Classic Rock.hlx with another amp and its default cab, Line 6's defaults read from the
 HX Edit install. The tone's settings arrive by MIDI: what each CC does is in KNOBS and in
-hx-stomp-presets/README.md. Snapshots keep the compressor, the drive block and a level trim.
+hx-stomp-presets/README.md. Snapshots keep the compressor and the drive block. calibration.json, from
+tools/calibrate_stomp.py, gives each amp its range of gain and how its level follows the tone's drive.
 """
 import argparse, json, os, sys
 
@@ -19,10 +20,9 @@ BUDGET = 75.0               # the Stomp's DSP, inferred: see hx-stomp-presets/RE
 LOAD_WAIT_MS = 500          # CCs right after a preset change can be lost
 LEAD_LIFT = 1.41            # Ch Vol at CC 20 = 127: about +3 dB
 CAB_CUTS = {"LowCut": 80.0, "HighCut": 9000.0}
-SNAPSHOT_LEVEL_DB = [3.0, 1.0, -1.0]    # Clean, Crunch, Heavy, until they are measured
 GAIN = ["Drive", "Gain", "DriveNorm", "Ch1Drive", "Ch2Drive", "Norm Drive"]
 GAIN_FIRST = {"AmpAguaSledge": "Gain"}  # its Drive is a second stage, at 0 by default
-GAIN_RANGE, HIGH_GAIN_RANGE = (0.05, 0.85), (0.05, 0.6)     # the amp's gain at drive 0 and 1
+GAIN_RANGE = (0.05, 0.85)   # the amp's gain at drive 0 and 1, for an amp that couldn't be measured
 # CC: (the tone's setting, its range if not the app's default, block, parameter, value at CC 0, at CC 127)
 AMP, CHORUS, DELAY, REVERB = "block2", "block5", "block6", "block7"
 KNOBS = [(27, "bass", None, AMP, "Bass", 0, 1), (28, "mid", None, AMP, "Mid", 0, 1), (29, "treble", None, AMP, "Treble", 0, 1),
@@ -30,7 +30,7 @@ KNOBS = [(27, "bass", None, AMP, "Bass", 0, 1), (28, "mid", None, AMP, "Mid", 0,
          (31, "delay_time", None, DELAY, "Time", 0, 2), (33, "delay_feedback", None, DELAY, "Feedback", 0, 1),
          (34, "delay_mix", None, DELAY, "Mix", 0, 1), (35, "reverb_mix", None, REVERB, "Mix", 0, 1),
          (36, "modulation_mix", None, CHORUS, "Mix", 0, 1)]
-GAIN_CC, LEAD_CC = 26, 20
+GAIN_CC, LEVEL_CC, LEAD_CC = 26, 37, 20
 
 
 def models():
@@ -56,7 +56,7 @@ def slot_name(pc):
     return "%02d%s" % (pc // 3 + 1, "ABC"[pc % 3])
 
 
-def preset(amp, frame, M, high_gain):
+def preset(amp, frame, M, calibration):
     h = json.loads(json.dumps(frame))
     h["data"]["meta"]["name"] = amp[3:][:16]
     t = h["data"]["tone"]
@@ -71,20 +71,23 @@ def preset(amp, frame, M, high_gain):
 
     gain = GAIN_FIRST.get(amp) or next(p for p in GAIN if p in block)
     volume = "ChVol" if "ChVol" in block else "Ch Vol"
-    lo, hi = HIGH_GAIN_RANGE if amp in high_gain else GAIN_RANGE
+    lo, hi = calibration.get("gain", GAIN_RANGE)
+    t0, t1 = calibration.get("level_db", (0, 0))
     amp_controls = {gain: midi(lo, hi, GAIN_CC)}
     block[volume] = round(min(block[volume], 1 / LEAD_LIFT), 3)     # room for the whole lift
     amp_controls[volume] = midi(block[volume], round(block[volume] * LEAD_LIFT, 3), LEAD_CC)
-    controls = {AMP: amp_controls, "cab0": t["controller"]["dsp0"]["cab0"]}
+    # Level by the tone's drive, in the cab's dB: it can't go above +6, so the output block takes the rest
+    top = max(t0, t1)
+    d["outputA"]["gain"] = round(top, 1)
+    controls = {AMP: amp_controls, "cab0": {"Level": midi(round(t0 - top, 1), round(t1 - top, 1), LEVEL_CC)}}
     for cc, _, _, where, param, low, high in KNOBS:
         if param in d[where]:
             controls.setdefault(where, {})[param] = midi(low, high, cc)
     t["controller"]["dsp0"] = controls
 
-    for i, level in enumerate(SNAPSHOT_LEVEL_DB):
-        s = t["snapshot%d" % i]
-        s["controllers"]["dsp0"] = {"cab0": {"Level": {"@fs_enabled": False, "@value": level}}}
-    d["cab0"]["Level"] = SNAPSHOT_LEVEL_DB[0]
+    for i in range(3):
+        t["snapshot%d" % i].pop("controllers", None)
+    d["cab0"]["Level"] = round(t0 - top, 1)
     return h
 
 
@@ -124,6 +127,7 @@ def profile(slots, amps):
     load = ",\n".join('    "%s": [{"pc": %d}, {"wait_ms": %d}]' % (game, pc[amp], LOAD_WAIT_MS)
                       for game, amp in sorted(amps.items()) if amp in pc and not game.startswith("DI_"))
     knobs = ['{"cc": %d, "from": "drive"}' % GAIN_CC] + ['{"cc": %d, "from": "%s"}' % (k[0], k[1]) for k in KNOBS]
+    knobs.append('{"cc": %d, "from": "drive"}' % LEVEL_CC)
     return """{
   "name": "HX Stomp by amp",
   "comment": "A preset per Helix amp, made by tools/make_stomp_presets.py; a style's preset for any other amp. Setup: hx-stomp-presets/README.md.",
@@ -166,6 +170,7 @@ def main():
     M = models()
     spec = json.load(open(os.path.join(PRESETS, "amps.json")))
     frame = json.load(open(os.path.join(PRESETS, "Classic Rock.hlx")))
+    calibration = json.load(open(os.path.join(PRESETS, "calibration.json")))["amps"]
     slots = spec["slots"][:args.first]
     out = os.path.join(PRESETS, "amps")
     os.makedirs(out, exist_ok=True)
@@ -174,7 +179,7 @@ def main():
             os.remove(os.path.join(out, f))
     worst = 0.0
     for i, amp in enumerate(slots):
-        h = preset(amp, frame, M, spec["high_gain"])
+        h = preset(amp, frame, M, calibration.get(amp, {}))
         load = check(h, M)
         if load > BUDGET:
             sys.exit("%s: %.2f is over the DSP budget" % (amp, load))
