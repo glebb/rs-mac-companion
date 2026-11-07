@@ -30,8 +30,8 @@
       "DriveNorm": {
        "@cc": 26,
        "@controller": 8,
-       "@max": 0.85,
-       "@min": 0.05,
+       "@max": 0.753,
+       "@min": 0.075,
        "@snapshot_disable": false
       },
       "Treble": {
@@ -87,8 +87,8 @@
       "Level": {
        "@cc": 37,
        "@controller": 8,
-       "@max": 0,
-       "@min": 0,
+       "@max": -5.4,
+       "@min": 0.0,
        "@snapshot_disable": false
       }
      }
@@ -232,7 +232,7 @@
      "Angle": 0.0,
      "Distance": 7.0,
      "HighCut": 9000.0,
-     "Level": 0,
+     "Level": 0.0,
      "LowCut": 80.0,
      "Mic": 11,
      "Position": 0.19
@@ -266,7 +266,7 @@
     "outputA": {
      "@model": "HelixStomp_AppDSPFlowOutputMain",
      "@output": 1,
-     "gain": 0,
+     "gain": 0.5,
      "pan": 0.5
     },
     "outputB": {

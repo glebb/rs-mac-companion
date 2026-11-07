@@ -12,7 +12,8 @@ measuring. Two things come out per amp:
   * (d - 1/2): 0 at the top of Crunch's middle. Two presets that sounded right on a Stomp set that scale.
 - level_db: what to add at the tone's drive 0 and 1 so every amp comes out alike, as an amp gets far louder with Drive.
 
-An amp without Drive as a parameter can't be swept through tonehost's states, and keeps the generator's default.
+An amp whose level doesn't move with knob 0 can't be swept, and keeps the generator's default: tonehost's states put each
+amp's gain on that knob, whatever the amp calls it.
 """
 import json, math, os, subprocess, sys
 
@@ -89,9 +90,10 @@ def calibrate(amp, rows, target, M):
     level = [r[1][LEVELS.index(GUITAR_DB)] for r in rows]
     if max(level) - min(level) < 0.5:
         return None
-    dirts = []
-    for _, out in rows:     # never falling: what's left of an amp's hum at the lowest Drives doesn't count
-        dirts.append(max(dirt(out), dirts[-1] if dirts else -18.0))
+    # Dirt only rises with Drive, so read from the top: a spike at the lowest Drives, hum or a state just loaded, doesn't count
+    dirts = [dirt(out) for _, out in rows]
+    for i in range(len(dirts) - 2, -1, -1):
+        dirts[i] = min(dirts[i], dirts[i + 1])
     def drive_for(want):
         if want <= dirts[0]:
             return xs[0]

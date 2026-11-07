@@ -14,14 +14,14 @@
   },
   "AmpAguaSledge": {
    "gain": [
-    0.045,
+    0.194,
     1
    ],
    "level_db": [
-    0.1,
-    -3.8
+    1.4,
+    -13.7
    ],
-   "level_miss_db": 0.5
+   "level_miss_db": 1.1
   },
   "AmpBrit2203": {
    "gain": [
@@ -155,6 +155,17 @@
    ],
    "level_miss_db": 2.6
   },
+  "AmpFullertonNrm": {
+   "gain": [
+    0.15,
+    0.404
+   ],
+   "level_db": [
+    2.7,
+    -3.5
+   ],
+   "level_miss_db": 1.8
+  },
   "AmpGCougar800": {
    "gain": [
     0.4,
@@ -165,6 +176,17 @@
     -12.2
    ],
    "level_miss_db": 0.7
+  },
+  "AmpGrammaticoNrm": {
+   "gain": [
+    0.075,
+    0.753
+   ],
+   "level_db": [
+    0.5,
+    -4.9
+   ],
+   "level_miss_db": 2.6
   },
   "AmpJazzRivet120": {
    "gain": [
@@ -188,6 +210,17 @@
    ],
    "level_miss_db": 2.9
   },
+  "AmpMandarinBass200": {
+   "gain": [
+    0.15,
+    0.588
+   ],
+   "level_db": [
+    0.4,
+    -6.2
+   ],
+   "level_miss_db": 1.8
+  },
   "AmpMandarinRocker": {
    "gain": [
     0.2,
@@ -198,6 +231,28 @@
     -7.1
    ],
    "level_miss_db": 2.0
+  },
+  "AmpMatchstickCh1": {
+   "gain": [
+    0.15,
+    0.535
+   ],
+   "level_db": [
+    2.2,
+    -5.9
+   ],
+   "level_miss_db": 2.2
+  },
+  "AmpMatchstickCh2": {
+   "gain": [
+    0.1,
+    0.261
+   ],
+   "level_db": [
+    5.9,
+    -7.0
+   ],
+   "level_miss_db": 4.3
   },
   "AmpSVBeastBrt": {
    "gain": [
@@ -276,6 +331,17 @@
    ],
    "level_miss_db": 1.2
   },
+  "AmpUSDripmanNorm": {
+   "gain": [
+    0.15,
+    0.464
+   ],
+   "level_db": [
+    5.5,
+    -2.6
+   ],
+   "level_miss_db": 2.0
+  },
   "AmpUSPrincess": {
    "gain": [
     0.15,
@@ -321,13 +387,6 @@
    "level_miss_db": 1.3
   }
  },
- "not_measured": [
-  "AmpFullertonNrm",
-  "AmpGrammaticoNrm",
-  "AmpMandarinBass200",
-  "AmpMatchstickCh1",
-  "AmpMatchstickCh2",
-  "AmpUSDripmanNorm"
- ],
+ "not_measured": [],
  "target_db": -26.5
 }

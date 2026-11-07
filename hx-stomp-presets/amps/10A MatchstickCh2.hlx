@@ -16,8 +16,8 @@
       "Ch2Drive": {
        "@cc": 26,
        "@controller": 8,
-       "@max": 0.85,
-       "@min": 0.05,
+       "@max": 0.261,
+       "@min": 0.1,
        "@snapshot_disable": false
       },
       "ChVol": {
@@ -80,8 +80,8 @@
       "Level": {
        "@cc": 37,
        "@controller": 8,
-       "@max": 0,
-       "@min": 0,
+       "@max": -12.9,
+       "@min": 0.0,
        "@snapshot_disable": false
       }
      }
@@ -224,7 +224,7 @@
      "Angle": 0.0,
      "Distance": 1.5,
      "HighCut": 9000.0,
-     "Level": 0,
+     "Level": 0.0,
      "LowCut": 80.0,
      "Mic": 0,
      "Position": 0.53
@@ -258,7 +258,7 @@
     "outputA": {
      "@model": "HelixStomp_AppDSPFlowOutputMain",
      "@output": 1,
-     "gain": 0,
+     "gain": 5.9,
      "pan": 0.5
     },
     "outputB": {

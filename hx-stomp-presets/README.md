@@ -191,19 +191,21 @@ a change of amps, then `tools/make_stomp_presets.py`.
   peaks are taken as -18 dB, from tonehost's logs of playing at about -14 to -20.
 - **The level** is that of Classic Rock's Crunch, -26.5 dB in these terms, with the cab at +2 dB.
 
-The middle 80% of the 29 amps measured, for a tone in the middle of its category:
+The middle 80% of the 35 amps, for a tone in the middle of its category:
 
 | | Level before | Level after | Dirt before | Dirt after |
 |---|---|---|---|---|
-| Clean | -41.4 to -23.9 dB | -27.5 to -26.5 dB | -18.0 to +13.9 dB | -10.3 to -3.1 dB |
-| Crunch | -27.9 to -20.4 dB | -26.6 to -25.1 dB | -8.8 to +25.1 dB | -2.2 to +5.8 dB |
-| Heavy | -24.2 to -16.8 dB | -27.5 to -26.6 dB | +2.7 to +35.3 dB | +4.8 to +10.9 dB |
+| Clean | -40.7 to -24.2 dB | -27.5 to -26.5 dB | -18.0 to +6.2 dB | -10.3 to -2.1 dB |
+| Crunch | -27.7 to -21.9 dB | -26.3 to -25.1 dB | -7.2 to +17.4 dB | -1.6 to +5.9 dB |
+| Heavy | -24.2 to -17.5 dB | -27.5 to -26.8 dB | +2.9 to +33.3 dB | +9.0 to +10.8 dB |
 
 These are computed from the measurements, not measured on a Stomp. A straight line of levels misses the
-amp's real curve by 1.3 dB in the median amp and 2.9 dB at worst.
+amp's real curve by 1.4 dB in the median amp and 4.3 dB at worst, on Matchstick Ch2, which falls silent
+below Drive 1.
 
 All 35 were imported, and with a guitar through Brit 2204, Cali Rectifire and US Deluxe, each at clean,
 crunch and heavy, the amps sounded well matched (7 November 2026). The other amps haven't been heard.
+On the Stomp, CC 26 on Fullerton and Agua Sledge reached exactly their calibrated maximum.
 
 **What it leaves out:**
 
@@ -211,9 +213,6 @@ crunch and heavy, the amps sounded well matched (7 November 2026). The other amp
   distortion on top, so those two may sit a little high.
 - Native's cab runs full range, while the presets cut below 80 Hz and above 9 kHz.
 - Ch Vol is taken as linear, as above, on amps whose default it had to lower.
-- Six amps have no gain to sweep, as rs-tonehost's states have only a parameter called Drive on the
-  knob: Fullerton Nrm, Grammatico Nrm, Mandarin Bass 200, Matchstick Ch1 and Ch2, and US Dripman Norm.
-  They keep a range of 0.5–8.5 and no level correction.
 
 An arrangement's amp is the one it plays longest. Its other amps play through that preset, so about a
 quarter of arrangements lose an amp for part of the song. DI amps, used for acoustic parts, never pick
