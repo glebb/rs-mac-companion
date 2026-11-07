@@ -90,6 +90,22 @@ import Foundation
         check(near(Rig.corrected(0.95, offset: 0, category: .lead), 0.95), "Lead has no band")
         check(near(Rig.corrected(0.9, offset: -1, category: .lead), 1), "at most 1")
 
+        // The AI's correction for rs-tonehost: never waits, and goes only to a FIFO someone reads.
+        let fifo = NSTemporaryDirectory() + "rsc-commands-\(getpid())"
+        defer { unlink(fifo) }
+        check(!ToneHost.send(offset: 1, to: fifo), "no file: nothing sent")
+        mkfifo(fifo, 0o600)
+        check(!ToneHost.send(offset: 1, to: fifo), "no host reading: nothing sent, and no wait")
+        let reader = open(fifo, O_RDONLY | O_NONBLOCK)
+        check(ToneHost.send(offset: 0.5, to: fifo), "a host reading")
+        var line = [UInt8](repeating: 0, count: 32)
+        let got = read(reader, &line, 32)
+        check(got > 0 && String(decoding: line[..<got], as: UTF8.self) == "offset 0.5\n", "the line")
+        close(reader)
+        unlink(fifo)
+        FileManager.default.createFile(atPath: fifo, contents: Data())
+        check(!ToneHost.send(offset: 1, to: fifo), "an ordinary file isn't written to")
+
         // Settings from before profiles.
         check(Profile.legacy(json: [:]).sendsTheSame(as: plain), "no settings = Program Changes")
         check(Profile.legacy(json: ["song_tones": true]).sendsTheSame(as: stagehand), "song tones on = Stagehand")

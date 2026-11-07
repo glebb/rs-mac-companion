@@ -24,6 +24,7 @@ trap 'kill $APP $MONITOR $DEVICE $STANDIN 2>/dev/null || true; wait 2>/dev/null;
 clang -O1 -c native/rsfile.c -o "$DATA/rsfile.o"
 swiftc -parse-as-library -import-objc-header app/Sources/rsfile-bridge.h tests/profile_harness.swift \
   app/Sources/Profile.swift app/Sources/SongTones.swift app/Sources/Category.swift app/Sources/Rig.swift \
+  app/Sources/ToneHost.swift \
   "$DATA/rsfile.o" -lz -o "$DATA/harness" 2>&1 | grep -v warning || true
 "$DATA/harness" profiles
 

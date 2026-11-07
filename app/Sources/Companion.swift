@@ -640,6 +640,10 @@ final class Companion: ObservableObject {
     /// When the profile uses them, reads the song's tones from its archive (once per arrangement;
     /// again when the mapping changes), and runs the profile's song load sequence.
     private func makeSongTones(force: Bool = false) {
+        if !arrangement.isEmpty {
+            let offset = presets.gainOffset(Presets.songKey(arrangement))
+            if ToneHost.send(offset: offset), offset != 0 { record("tonehost: gain offset \(offset)") }
+        }
         guard profile.needsSongData, let song, !arrangement.isEmpty, !archive.isEmpty else {
             if !profile.needsSongData { madeTones = nil }
             return

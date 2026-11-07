@@ -109,6 +109,7 @@ catch up, and tells it whether the game (with the dylib) is running.
 | `Profile.swift` | device profiles in `profiles/`: what's sent on song load and per tone, knobs included, and where; [device-profiles.md](device-profiles.md) |
 | `AIClassifier.swift` | AI song classification: asks OpenAI's Responses API about a song (the prompt and answer schema of `classify_songs.py`), saves the answer in `ai_classified.json`; the API key in the keychain |
 | `MIDIOut.swift` | plays a profile's steps in order as MIDI 1.0 UMP: from a CoreMIDI virtual source "Rocksmith Companion" or straight to a MIDI destination; held for the first second so listeners can connect |
+| `ToneHost.swift` | tells rs-tonehost, the plug-in host of [rearmed-mods](https://github.com/glebb/rearmed-mods), a song's AI gain offset as it loads, as a line on its FIFO; nothing if no host is running |
 | `Rig.swift` | a song's gear read from its archive: each tone's tags, drive and effects, the song's tuning and heaviness; the same rules as `rig.py` (checked identical on all 2,768 songs of a library) |
 | `SongTones.swift` | song tone messages: the SysEx (manufacturer 0x7D, then JSON, version 2) sent when a song loads, describing each tone in Rocksmith's terms for any tool, and a Program Change per tone (8–12 by default). The format: [song-tone-messages.md](song-tone-messages.md) |
 | `Companion.swift` | state, mapping, overrides, when to send, AI requests and their answers, install status and warnings |
