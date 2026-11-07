@@ -202,6 +202,9 @@ The middle 80% of the 29 amps measured, for a tone in the middle of its category
 These are computed from the measurements, not measured on a Stomp. A straight line of levels misses the
 amp's real curve by 1.3 dB in the median amp and 2.9 dB at worst.
 
+All 35 were imported, and with a guitar through Brit 2204, Cali Rectifire and US Deluxe, each at clean,
+crunch and heavy, the amps sounded well matched (7 November 2026). The other amps haven't been heard.
+
 **What it leaves out:**
 
 - The amp and cab alone are measured. The compressor in Clean and the drive block in Heavy add level and
@@ -225,8 +228,7 @@ HX Edit, not heard.
 **The order matters.** A CC sent just before a snapshot change, in the same burst, is lost. After the
 change it arrives. So keep the `category` steps first in a tone's messages, as the app does.
 
-**Heard on a Stomp:** a jump from clean to heavy by CC, with a guitar through 02A, sounded smooth. The
-presets other than the first three haven't been on a Stomp.
+**Heard on a Stomp:** a jump from clean to heavy by CC, with a guitar through 02A, sounded smooth. 
 
 
 ## Sources
