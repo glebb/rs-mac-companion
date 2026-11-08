@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Add an LC_LOAD_DYLIB load command to the x86_64 slice of a (universal) Mach-O executable.
+"""Add an LC_LOAD_DYLIB load command to the x86_64 slice of a (universal) Mach-O executable, or to a
+thin arm64 one (RS Re-ARMed's, as the companion app installed it before it used the mods folder).
 
 Writes a patched copy; it never edits the input in place. The command is appended after the
 existing load commands, in the header padding before the first section, so nothing else moves.
@@ -13,12 +14,13 @@ import sys
 FAT_MAGIC = 0xCAFEBABE
 MH_MAGIC_64 = 0xFEEDFACF
 CPU_TYPE_X86_64 = 0x01000007
+CPU_TYPE_ARM64 = 0x0100000C
 LC_LOAD_DYLIB = 0xC
 LC_SEGMENT_64 = 0x19
 
 
 def x86_64_slice(data):
-    """Offset of the x86_64 Mach-O inside the file (0 for a thin x86_64 file)."""
+    """Offset of the x86_64 Mach-O inside the file (0 for a thin file)."""
     (magic,) = struct.unpack_from(">I", data, 0)
     if magic == FAT_MAGIC:
         (n,) = struct.unpack_from(">I", data, 4)
@@ -39,7 +41,7 @@ def main():
     data = bytearray(open(src, "rb").read())
     base = x86_64_slice(data)
     magic, cputype, _, _, ncmds, sizeofcmds, _, _ = struct.unpack_from("<IiiIIIII", data, base)
-    if magic != MH_MAGIC_64 or cputype != CPU_TYPE_X86_64:
+    if magic != MH_MAGIC_64 or cputype not in (CPU_TYPE_X86_64, CPU_TYPE_ARM64) or (base and cputype != CPU_TYPE_X86_64):
         sys.exit("x86_64 slice header not recognised")
 
     # Walk the load commands: reject duplicates, find where the first section's data starts.

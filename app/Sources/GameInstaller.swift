@@ -2,8 +2,9 @@ import AppKit
 import Foundation
 
 /// Installs the companion into Rocksmith: adds a load command for librscompanion.dylib to the
-/// game executable and puts the dylib (bundled in this app) next to it. Also updates it, removes
-/// it, and tells which state the game is in.
+/// game executable and puts the dylib (bundled in this app) next to it; for RS Re-ARMed, copies the
+/// dylib into its mods folder instead. Also updates it, removes it, and tells which state the game
+/// is in.
 struct GameInstaller {
     static let defaultGameDir = NSHomeDirectory() + "/Library/Application Support/Steam/steamapps/common/Rocksmith2014"
     /// RS Re-ARMed (the native arm64 port) runs the game from a mirror of the Steam folder here.
@@ -106,10 +107,26 @@ struct GameInstaller {
 
     var macOSDir: String { gameDir + "/Rocksmith2014.app/Contents/MacOS" }
     var executable: String { macOSDir + "/Rocksmith2014" }
-    var installedDylib: String { macOSDir + "/" + Self.dylibName }
-    /// The executable as it was without the companion. RS Re-ARMed's goes next to the app: a
-    /// Mach-O file inside the app would count as part of its signed code.
+    /// Where the library goes: RS Re-ARMed's mods folder, else next to the executable.
+    var installedDylib: String { (usesModsFolder ? modsDir : macOSDir) + "/" + Self.dylibName }
+    /// The executable as it was without the companion. RS Re-ARMed's went next to the app (before
+    /// the mods folder): a Mach-O file inside the app would count as part of its signed code.
     var backup: String { isArm64 ? gameDir + "/Rocksmith2014.orig" : executable + ".orig" }
+
+    /// RS Re-ARMed loads every library in its mods folder at startup, and keeps the folder when it's
+    /// reinstalled: the companion goes there instead of into its executable. (Learn & Play skips the
+    /// library: it's built for the Mac game's addresses, without rc_mod.h.)
+    var usesModsFolder: Bool { isArm64 }
+
+    /// RS Re-ARMed's mods folder, next to its game folder. The game folder may be a link to another
+    /// drive; the mods folder stays in Application Support.
+    var modsDir: String {
+        let resolved = { (p: String) in URL(fileURLWithPath: p).resolvingSymlinksInPath().path }
+        let home = resolved(gameDir) == resolved(Self.reArmedGameDir)
+            ? (Self.reArmedGameDir as NSString).deletingLastPathComponent
+            : (gameDir as NSString).deletingLastPathComponent
+        return home + "/mods"
+    }
 
     /// The executable is a thin arm64 one (RS Re-ARMed).
     private var isArm64: Bool {
@@ -142,6 +159,13 @@ struct GameInstaller {
             return .problem("Cannot read the game executable: \(error)")
         }
         let ours = patcher.dylibs.filter(Self.isOurs)
+        if usesModsFolder {
+            // A load command is an install from before the mods folder: Update moves it there.
+            if !ours.isEmpty { return .updateAvailable }
+            guard let installed = FileManager.default.contents(atPath: installedDylib) else { return .notInstalled }
+            if let bundled = bundledDylib, let data = try? Data(contentsOf: bundled), data != installed { return .updateAvailable }
+            return .installed
+        }
         if ours.isEmpty { return .notInstalled }
         if ours != [Self.loadPath] { return .updateAvailable }
         guard let installed = FileManager.default.contents(atPath: installedDylib) else { return .updateAvailable }
@@ -155,6 +179,14 @@ struct GameInstaller {
         guard !gameRunning else { throw Failure.gameRunning }
         guard let bundled = bundledDylib, FileManager.default.fileExists(atPath: bundled.path) else {
             throw Failure.noBundledLibrary
+        }
+        if usesModsFolder {
+            var done = try removePatch()
+            try FileManager.default.createDirectory(atPath: modsDir, withIntermediateDirectories: true)
+            try replace(installedDylib, with: Data(contentsOf: bundled), mode: 0o755)
+            removexattr(installedDylib, "com.apple.quarantine", 0)
+            done.append("copied \(Self.dylibName) to RS Re-ARMed's mods folder")
+            return done.joined(separator: "; ")
         }
         var done: [String] = []
         let original = try Data(contentsOf: URL(fileURLWithPath: executable))
@@ -197,6 +229,17 @@ struct GameInstaller {
     func uninstall() throws -> String {
         guard FileManager.default.fileExists(atPath: executable) else { throw Failure.gameNotFound(gameDir) }
         guard !gameRunning else { throw Failure.gameRunning }
+        var done = try removePatch()
+        if usesModsFolder, FileManager.default.fileExists(atPath: installedDylib) {
+            try FileManager.default.removeItem(atPath: installedDylib)
+            done.append("deleted \(Self.dylibName) from RS Re-ARMed's mods folder")
+        }
+        return done.isEmpty ? "nothing to remove" : done.joined(separator: "; ")
+    }
+
+    /// Removes the companion's load command(s) and the library next to the executable; RS
+    /// Re-ARMed's app is then signed again.
+    private func removePatch() throws -> [String] {
         var done: [String] = []
         let original = try Data(contentsOf: URL(fileURLWithPath: executable))
         var patcher = try MachOPatcher(original)
@@ -216,7 +259,7 @@ struct GameInstaller {
             try signAgain()
             done.append("signed the game again")
         }
-        return done.isEmpty ? "nothing to remove" : done.joined(separator: "; ")
+        return done
     }
 
     /// macOS runs arm64 code only with a valid signature, and the changed executable and the

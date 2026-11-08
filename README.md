@@ -41,8 +41,9 @@ The two ways to run detect the same things the same way; the difference is where
 
 Both need Rocksmith 2014 Remastered from Steam on macOS (it runs under Rosetta on Apple Silicon).
 RS Companion also works with [RS Re-ARMed](https://github.com/bbelgg/rs-rearmed), the native
-Apple Silicon port: when it's installed, RS Companion installs into it instead (another game folder can
-be set in Settings).
+Apple Silicon port: when it's installed, RS Companion installs into it instead, as a library in its
+mods folder, which doesn't change the game and survives a reinstall of RS Re-ARMed (another game
+folder can be set in Settings).
 
 ## RS Companion (the in-game version)
 
@@ -61,7 +62,8 @@ be set in Settings).
    app, choose **Open**, then **Open** again. A guitar icon appears in the menu bar.
 3. Quit Rocksmith if it's running, and click **Install** in RS Companion (in the notice in its
    window, or in Settings › Rocksmith). It adds the companion library to the game and keeps a
-   backup of the game executable as `Rocksmith2014.orig`
+   backup of the game executable as `Rocksmith2014.orig`; for RS Re-ARMed it only puts the library
+   in RS Re-ARMed's `mods` folder
    ([what exactly it does](docs/how-it-works.md#installing-into-the-game)).
 4. Start Rocksmith from Steam as usual.
 
@@ -70,7 +72,8 @@ drive first). If it can't, choose the `Rocksmith2014` folder or `Rocksmith2014.a
 Settings › Rocksmith › Change Folder…, then click Install.
 
 **Updating:** download the new zip and replace the app in Applications. If the new version
-brings a newer game library, the app says **Update**: quit Rocksmith and click it. The app's
+brings a newer game library, the app says **Update**: quit Rocksmith and click it. (For RS Re-ARMed,
+an earlier install was made in the game itself; Update moves it to the mods folder.) The app's
 version is shown at the bottom of its Settings.
 
 From 1.1.0, tones tagged only with effects are mapped by their drive. If your `presets.json`

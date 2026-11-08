@@ -1,8 +1,9 @@
 import Foundation
 
 /// Adds and removes LC_LOAD_DYLIB load commands in the x86_64 slice of a (universal) Mach-O
-/// executable, or in a thin arm64 one (RS Re-ARMed, the native port), in memory. An arm64
-/// executable must be signed again afterwards (GameInstaller does). Same rules as
+/// executable, or in a thin arm64 one (RS Re-ARMed, the native port, which got one before the
+/// companion went into its mods folder: now only removed), in memory. An arm64 executable must be
+/// signed again afterwards (GameInstaller does). Same rules as
 /// tools/add_load_dylib.py:
 ///  - a command is added after the existing ones, in the header padding before the first section,
 ///    so nothing else moves; the padding must be zero-filled;

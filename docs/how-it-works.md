@@ -214,37 +214,48 @@ the original image's bytes as data, so the game's objects, type pointers and off
 only the base differs, which the port exports as `rc_slide` (set when the game starts: the dylib's
 scanning threads wait for it). The library is universal (x86_64 and arm64).
 
-**Install / Update** (refused while that game folder's Rocksmith is running):
+**RS Re-ARMed: the mods folder.** RS Re-ARMed loads every library in
+`~/Library/Application Support/RS Re-ARMed/mods/` at startup (`dlopen`), and keeps the folder when it's
+reinstalled. So there Install only copies the library into that folder (without the quarantine flag),
+Uninstall deletes it, and the game and its signature stay as they are. An install from before (a load
+command in RS Re-ARMed's executable) shows as *update available*; Update removes the load command and
+the library next to the executable, signs the app again, and copies the library to the mods folder.
+dyld applies `__interpose` only to libraries loaded at launch. In RS Re-ARMed the game's code is the
+original x86_64 image's, recompiled; it calls libc through that image's own import slots, which RS
+Re-ARMed fills with `dlsym` when the game starts (just after it sets `rc_slide`) and reads at every
+call. So there the library waits for the image and points the slots that hold `open`, `read`,
+`fopen`, `fread`, `close`, `fclose` at its replacements (the log says how many).
+If an old install and the mods folder both load it, the second copy does nothing. RS Re-ARMed Learn &
+Play skips the library: it's built for the Mac game's addresses, without `rc_mod.h`.
+
+**Install / Update** in the Steam game (refused while that game folder's Rocksmith is running):
 1. If the executable has no companion load command yet, copy it to `Rocksmith2014.orig` (the backup
-   is never overwritten with a patched file). RS Re-ARMed's goes in the game folder, next to the app:
-   inside the app it would count as part of the app's signed code.
+   is never overwritten with a patched file).
 2. Copy the library to `Rocksmith2014.app/Contents/MacOS/librscompanion.dylib` and remove the
    quarantine flag (a downloaded app's copy would otherwise not load).
 3. Remove older companion load commands (`librscompanion_test.dylib` from prototype installs) and
    add `LC_LOAD_DYLIB @executable_path/librscompanion.dylib` to the **x86_64 slice**, in the free
    header space after the last load command. Nothing else in the file moves; the i386 slice is not
-   touched; a fresh install changes ~48 bytes. RS Re-ARMed's executable is thin arm64: the command
-   goes there, and the app is then signed again ad hoc, keeping its identifier (macOS runs arm64
-   code only with a valid signature; it may ask for microphone access again).
+   touched; a fresh install changes ~48 bytes.
 4. Every file is written next to its destination and renamed into place, so a starting game never
    sees a half-written file.
 
 **Uninstall** removes the companion's load command(s) and library only: the commands after it
 move up and the freed space is zeroed, which gives back the executable byte for byte as it was
 before install, with anything installed alongside (the custom-song patch's `libRSBypass`) kept.
-(RS Re-ARMed's is signed again, so there only the signature differs.)
 Removing a load command shifts the library ordinals of later ones; that's harmless for libraries
 the game imports nothing from, which is what injected libraries like these are.
 
 **Status** (checked whenever the game's files change): *not found*, *not installed* (also after a
-Steam update replaced the executable), *update available* (older load command name, or the
-installed library differs from the bundled one), *installed*. The app also warns when the game
+Steam update replaced the executable), *update available* (older load command name, the
+installed library differs from the bundled one, or, in RS Re-ARMed, a load command from before the
+mods folder), *installed*. The app also warns when the game
 has been running 20 s without heartbeats ("running without the companion": started before the
 install, or the patch is gone).
 
 The same, without the window: `"RS Companion.app/Contents/MacOS/RSCompanion" --game-status |
 --install-game | --uninstall-game [game folder]`. `tests/run_installer_test.sh` runs it on a copy
-of the game executable. `tools/add_load_dylib.py` does step 3 by hand for any executable.
+of the game executable, and on a copy of RS Re-ARMed's app if it's installed. `tools/add_load_dylib.py` does step 3 by hand for any executable.
 
 ## External: rstone.py + rsprobe
 
@@ -279,7 +290,7 @@ of the game executable. `tools/add_load_dylib.py` does step 3 by hand for any ex
 | `tests/run_app_test.sh` | stand-in → dylib → app → MIDI (`tools/midi_monitor.swift`), with a song override, a live `presets.json` edit, custom MIDI settings and a restart catch-up |
 | `tests/run_song_tones_test.sh` | stand-in → dylib → app with song tone messages on: the SysEx message at song load (style, tones in order of first use with their categories and effects) and Program Change 8 and 9 |
 | `tests/run_profile_test.sh` | the profile format and its rules, then stand-in → dylib → app with a profile sending straight to a test MIDI device: the song load sequence with its wait, the tones' snapshot and effect CCs, nothing on the virtual source |
-| `tests/run_installer_test.sh` | the installer on a copy of the game executable: fresh install, repeat, prototype migration, update, uninstall back to the original bytes, missing game, a damaged executable |
+| `tests/run_installer_test.sh` | the installer on a copy of the game executable: fresh install, repeat, prototype migration, update, uninstall back to the original bytes, missing game, a damaged executable; with RS Re-ARMed installed, on a copy of its app: install into and uninstall from the mods folder, and moving an install with a load command there |
 | `tests/run_events_test.sh` | `rscore.c`'s events from `tests/events_harness.c`, for an ordinary song and one with 16 arrangements and every name as long as allowed: valid JSON, only whole parts (as many as fit), the log saying how many |
 | `tests/run_ai_app_test.sh` | `AIClassifier.swift` and `Presets.swift` against `tests/stub_responses.py` (a stand-in for OpenAI): the request (key, model, the script's prompt, strict schema), the saved answer, the song's remap and style, rejecting and using again, a wrong key |
 | `tests/run_classify_test.sh` | `classify_songs.py` with `tests/stub_openai` for the `openai` package, on songs from your index: batches, suggestions, low-confidence answers left out, `presets.py` using them after your own entries |

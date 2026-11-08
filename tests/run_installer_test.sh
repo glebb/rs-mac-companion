@@ -99,4 +99,41 @@ check "in another library, in the folder its manifest names" '[ "$(find_game)" =
 fake_game "$S/steamapps/common/Rocksmith2014"
 check "Steam's own library first" '[ "$(find_game)" = "$S/steamapps/common/Rocksmith2014" ]'
 
+REARMED_APP=${RS_REARMED_APP:-"$HOME/Library/Application Support/RS Re-ARMed/game/Rocksmith2014.app"}
+if [ -d "$REARMED_APP" ] && ! otool -L "$REARMED_APP/Contents/MacOS/Rocksmith2014" | grep -q librscompanion; then
+  echo "8. RS Re-ARMed: the mods folder (on a copy of its app)"
+  R="$T/RS Re-ARMed"
+  RG="$R/game"
+  RM="$RG/Rocksmith2014.app/Contents/MacOS"
+  mkdir -p "$RG"
+  cp -R "$REARMED_APP" "$RG/"
+  cp "$RM/Rocksmith2014" "$T/rearmed-original"
+  rrun() { RS_COMPANION_DATA="$T/data" "$APPBIN" "$@" "$RG"; }
+  check "status: not installed" '[ "$(rrun --game-status)" = "Not installed in Rocksmith" ]'
+  rrun --install-game | sed 's/^/    /'
+  check "status: installed" '[ "$(rrun --game-status)" = "Installed in Rocksmith" ]'
+  check "library in the mods folder" 'cmp -s "$R/mods/librscompanion.dylib" "$BUNDLED"'
+  check "library not quarantined" '! xattr "$R/mods/librscompanion.dylib" | grep -q quarantine'
+  check "executable untouched" 'cmp -s "$RM/Rocksmith2014" "$T/rearmed-original"'
+  check "nothing added next to it" '[ ! -e "$RM/librscompanion.dylib" ] && [ ! -e "$RG/Rocksmith2014.orig" ]'
+  check "signature still valid" 'codesign -v "$RG/Rocksmith2014.app" 2>/dev/null'
+  rrun --uninstall-game | sed 's/^/    /'
+  check "uninstall: library gone" '[ ! -e "$R/mods/librscompanion.dylib" ]'
+  check "uninstall: status not installed" '[ "$(rrun --game-status)" = "Not installed in Rocksmith" ]'
+
+  echo "9. RS Re-ARMed: an install with a load command moves to the mods folder"
+  python3 tools/add_load_dylib.py "$T/rearmed-original" "$RM/Rocksmith2014" @executable_path/librscompanion.dylib > /dev/null
+  cp "$BUNDLED" "$RM/librscompanion.dylib"
+  codesign --force --sign - --preserve-metadata=identifier,entitlements,flags "$RG/Rocksmith2014.app" 2> /dev/null
+  check "status: update available" '[ "$(rrun --game-status)" = "Installed; an update is available" ]'
+  rrun --install-game | sed 's/^/    /'
+  check "status: installed" '[ "$(rrun --game-status)" = "Installed in Rocksmith" ]'
+  check "load command removed" '! otool -L "$RM/Rocksmith2014" | grep -q librscompanion'
+  check "library next to the executable deleted" '[ ! -e "$RM/librscompanion.dylib" ]'
+  check "library in the mods folder" 'cmp -s "$R/mods/librscompanion.dylib" "$BUNDLED"'
+  check "signature valid" 'codesign -v "$RG/Rocksmith2014.app" 2>/dev/null'
+else
+  echo "8-9. skipped: no RS Re-ARMed without the companion at $REARMED_APP"
+fi
+
 [ $fails = 0 ] && echo PASS || { echo "FAIL ($fails)"; exit 1; }

@@ -102,8 +102,11 @@ struct SettingsView: View {
                 if let message = companion.installMessage {
                     Text(message).font(.caption).foregroundStyle(.secondary)
                 }
-                Text("Installing adds one library to the game (Rocksmith must not be running); a backup of the "
-                     + "game is kept. Uninstalling removes only the companion. After a Steam update, install again.")
+                Text(companion.installer.usesModsFolder
+                     ? "Installing puts one library in RS Re-ARMed's mods folder (Rocksmith must not be running); "
+                       + "the game itself isn't changed, and a reinstall of RS Re-ARMed keeps it. Uninstalling removes it."
+                     : "Installing adds one library to the game (Rocksmith must not be running); a backup of the "
+                       + "game is kept. Uninstalling removes only the companion. After a Steam update, install again.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 

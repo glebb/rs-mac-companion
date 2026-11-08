@@ -178,7 +178,7 @@ final class Companion: ObservableObject {
         switch installStatus {
         case .gameNotFound: return ("Rocksmith not found. Set its folder in Settings.", nil)
         case .notInstalled:
-            let replaced = FileManager.default.fileExists(atPath: installer.backup)
+            let replaced = !installer.usesModsFolder && FileManager.default.fileExists(atPath: installer.backup)
             return (replaced ? "Not installed in Rocksmith. Steam may have updated the game." : "Not installed in Rocksmith yet.",
                     .installInGame("Install"))
         case .updateAvailable: return ("An update for Rocksmith is ready.", .installInGame("Update"))

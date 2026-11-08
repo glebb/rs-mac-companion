@@ -1,8 +1,9 @@
 // rscompanion (prototype): in-game dylib that reports Rocksmith 2014 tone changes in real time,
 // with no pre-built index and no special permissions.
 //
-// 1. Song: the libc file calls are interposed (dyld __interpose) to see which .psarc archives
-//    the game opens and where it reads. When the game reads an arrangement's .sng entry, a
+// 1. Song: the libc file calls are interposed (dyld __interpose; in RS Re-ARMed, which loads the
+//    library from its mods folder by dlopen, the game image's import slots are pointed at them) to
+//    see which .psarc archives the game opens and where it reads. When the game reads an arrangement's .sng entry, a
 //    worker thread opens the same archive itself (rsfile.c) and reads every arrangement of that
 //    song: manifest (song, artist, tone slots, tone tags) and tone changes.
 // 2. Arrangement: the selected one's description object exists twice in memory (the game keeps
@@ -561,6 +562,74 @@ static void wait_for_image(void) {
     while (!(s = __atomic_load_n(g_rc_slide, __ATOMIC_ACQUIRE))) usleep(100000);
     if (!__atomic_exchange_n(&g_slide, s, __ATOMIC_RELAXED))
         logline("RS Re-ARMed: game image slide 0x%llx", (unsigned long long)s);
+}
+
+// dyld applies __interpose only for libraries loaded at launch; RS Re-ARMed loads this library from
+// its mods folder, by dlopen. There the game's code is the original x86_64 image's, recompiled, and
+// it calls a libc function through the image's own import slot, which RS Re-ARMed fills (with dlsym)
+// when the game starts, just after it sets rc_slide, and reads at every call. So once that's done,
+// the slots that hold the libc functions we interpose are pointed at our replacements.
+// Writes a pointer; a read-only page is made writable for it and then gets its protection back.
+static int write_pointer(void **at, void *value) {
+    mach_vm_address_t page = (mach_vm_address_t)at & ~(mach_vm_address_t)(vm_page_size - 1), addr = page;
+    mach_vm_size_t size = 0;
+    vm_region_basic_info_data_64_t info;
+    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+    mach_port_t object = MACH_PORT_NULL;
+    if (mach_vm_region(mach_task_self(), &addr, &size, VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info, &count,
+                       &object) != KERN_SUCCESS || addr > page)
+        return 0;
+    if (info.protection & VM_PROT_WRITE) {
+        *at = value;
+        return 1;
+    }
+    if (mach_vm_protect(mach_task_self(), page, vm_page_size, 0, VM_PROT_READ | VM_PROT_WRITE) != KERN_SUCCESS) return 0;
+    *at = value;
+    mach_vm_protect(mach_task_self(), page, vm_page_size, 0, info.protection);
+    return 1;
+}
+
+static void *patch_game_imports(void *arg) {
+    (void)arg;
+    const struct { void *libc, *ours; } fns[] = {
+        {(void *)open, (void *)my_open},     {(void *)openat, (void *)my_openat}, {(void *)fopen, (void *)my_fopen},
+        {(void *)close, (void *)my_close},   {(void *)fclose, (void *)my_fclose}, {(void *)fread, (void *)my_fread},
+        {(void *)read, (void *)my_read},     {(void *)pread, (void *)my_pread},
+    };
+    if (!g_rc_slide) return NULL;  // the Steam game: __interpose did it
+    wait_for_image();
+    const struct mach_header_64 *h = (const void *)(uintptr_t)(IMAGE_BASE + g_slide);
+    // The binds take milliseconds after rc_slide; try for a few seconds until the slots are there.
+    for (int tries = 0; tries < 50; tries++) {
+        usleep(100000);
+        if (h->magic != MH_MAGIC_64) continue;
+        int done = 0, slots = 0;
+        const struct load_command *lc = (const void *)(h + 1);
+        for (uint32_t i = 0; i < h->ncmds; i++, lc = (const void *)((const char *)lc + lc->cmdsize)) {
+            if (lc->cmd != LC_SEGMENT_64) continue;
+            const struct segment_command_64 *sg = (const void *)lc;
+            const struct section_64 *sec = (const void *)(sg + 1);
+            for (uint32_t s = 0; s < sg->nsects; s++, sec++) {
+                uint32_t type = sec->flags & SECTION_TYPE;
+                if (type != S_NON_LAZY_SYMBOL_POINTERS && type != S_LAZY_SYMBOL_POINTERS) continue;
+                void **ptrs = (void **)(uintptr_t)(sec->addr + g_slide);
+                for (uint64_t k = 0; k < sec->size / sizeof(void *); k++) {
+                    slots += ptrs[k] != NULL;
+                    for (size_t f = 0; f < sizeof fns / sizeof fns[0]; f++) {
+                        if (ptrs[k] != fns[f].libc) continue;
+                        done += write_pointer(&ptrs[k], fns[f].ours);
+                        break;
+                    }
+                }
+            }
+        }
+        if (done) {
+            logline("RS Re-ARMed: file calls: %d of the game's import slots (%d bound)", done, slots);
+            return NULL;
+        }
+    }
+    logline("RS Re-ARMed: the game's file imports were not found: songs won't be seen");
+    return NULL;
 }
 
 // Name of the selected arrangement of song `key` (its object exists twice), or "". Scans only
@@ -1547,9 +1616,25 @@ static void find_images(void) {
     }
 }
 
+// A library of our name was loaded before this one (its constructor has run).
+static int another_copy_loaded(void) {
+    Dl_info info;
+    if (!dladdr((void *)another_copy_loaded, &info)) return 0;
+    for (uint32_t i = 0; i < _dyld_image_count(); i++) {
+        const struct mach_header *h = _dyld_get_image_header(i);
+        if (h == info.dli_fbase) return 0;
+        const char *name = _dyld_get_image_name(i), *slash = name ? strrchr(name, '/') : NULL;
+        if (slash && !strcmp(slash + 1, "librscompanion.dylib")) return 1;
+    }
+    return 0;
+}
+
 __attribute__((constructor)) static void init(void) {
     char dir[1024];
     if (!data_dir(dir, sizeof dir)) return;
+    // One copy per process: an RS Re-ARMed with both an old install (a load command) and the
+    // library in its mods folder would otherwise run two.
+    if (another_copy_loaded()) return;
     log_open(dir, "rscompanion.log");
     find_images();
     if (g_rc_slide)
@@ -1568,7 +1653,7 @@ __attribute__((constructor)) static void init(void) {
         logline("known memory tags for %s:%s", TAG_NAMES[k], s[0] ? s : " (none yet: first scans cover everything)");
     }
     pthread_t th;
-    void *(*threads[])(void *) = {worker, searcher, banner_watch, tracker, stats_watch};
+    void *(*threads[])(void *) = {worker, searcher, banner_watch, tracker, stats_watch, patch_game_imports};
     for (size_t i = 0; i < sizeof threads / sizeof threads[0]; i++)
         if (pthread_create(&th, NULL, threads[i], NULL) == 0) pthread_detach(th);
 }
