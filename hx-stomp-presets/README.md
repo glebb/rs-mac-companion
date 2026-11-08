@@ -129,8 +129,8 @@ order:
 The presets were played on a real Stomp through RS Companion and sounded right (5 November 2026).
 That was a listening test, so the points below weren't checked one by one.
 
-- **The two MIDI forms come from HX Edit's code, not from a real file.** No example file on this Mac
-  has either one:
+- **The two MIDI forms came from HX Edit's code, not from a real file.** They have since worked on a
+  Stomp, in the [presets per amp](#a-preset-per-amp):
   - MIDI-only bypass: `"@fs_index": 19` with `"@cc": N` in `footswitch`. The nearest real file has
     `@cc` alongside a real footswitch index.
   - Ch Vol on CC 20: `"@controller": 8` with `"@cc": 20` in `controller`.
@@ -147,6 +147,88 @@ That was a listening test, so the points below weren't checked one by one.
 - **Timing after a preset change.** A forum thread warns that CCs sent right after a Program Change
   can be lost while a unit loads a preset (reported on an HX One), so `profiles/hx-stomp.json` waits
   500 ms after each `pc` step. If the first tone of a song is wrong, raise that wait.
+
+## A preset per amp
+
+`amps/` has one preset per Helix amp, for the profile **HX Stomp by amp**. The song's amp picks the
+preset, and the tone's settings arrive by MIDI, so a song plays closer to its Rocksmith tone than the
+three presets above can. `tools/make_stomp_presets.py` makes them from `amps.json`, with Line 6's
+defaults read from the HX Edit install.
+
+Import each file into the slot its name starts with, as above. This overwrites what's in those slots,
+so export your presets first. The chain is Classic Rock's with another amp and its default cab. All 35
+fit, at 64.02 DSP at most, by the same estimate as above.
+
+| CC | Sets | Range |
+|---|---|---|
+| 20 | Ch Vol, for Lead | about +3 dB |
+| 21–25 | Bypass, as above | |
+| 26 | The amp's gain, from the tone's drive | per amp, from `calibration.json` |
+| 27–30 | Bass, Mid, Treble, Presence | full range. An amp without one ignores it |
+| 31 | Delay time | 0–2 s |
+| 33, 34 | Delay feedback, mix | full range |
+| 35 | Reverb mix | full range |
+| 36 | Chorus mix | full range |
+| 37 | The cab's Level, from the tone's drive | per amp, from `calibration.json` |
+
+CC 32 is left out: it's MIDI's Bank Select, and Helix Native picks a setlist with it. Snapshots still set
+the compressor and the drive block.
+
+### Calibration
+
+Amps differ too much for one range. For the same distortion Brit 2204 needs Drive 0.5 and US Deluxe 5.4,
+and an amp can get 35 dB louder with Drive. So `calibration.json` gives each amp its own range of gain,
+and CC 37 follows the tone's drive to hold its level, with the output block taking what the cab's +6 dB
+can't.
+
+`tools/calibrate_stomp.py` measures this in Helix Native, offline, through the saved states of rs-tonehost
+(`tools/measure_helix.m`). The Stomp has the same models, and Native needs no guitar. Run it again after
+a change of amps, then `tools/make_stomp_presets.py`.
+
+- **Dirt** is how far in dB a guitar sits above the level where an amp starts to compress. The presets
+  aim at -10 dB for Clean, 0 for Crunch and +10 for Heavy, at the middle of each category.
+- **The scale** comes from US Deluxe and Brit 2203 in the presets above, which sounded right. A guitar's
+  peaks are taken as -18 dB, from tonehost's logs of playing at about -14 to -20.
+- **The level** is that of Classic Rock's Crunch, -26.5 dB in these terms, with the cab at +2 dB.
+
+The middle 80% of the 35 amps, for a tone in the middle of its category:
+
+| | Level before | Level after | Dirt before | Dirt after |
+|---|---|---|---|---|
+| Clean | -40.7 to -24.2 dB | -27.5 to -26.5 dB | -18.0 to +6.2 dB | -10.3 to -2.1 dB |
+| Crunch | -27.7 to -21.9 dB | -26.3 to -25.1 dB | -7.2 to +17.4 dB | -1.6 to +5.9 dB |
+| Heavy | -24.2 to -17.5 dB | -27.5 to -26.8 dB | +2.9 to +33.3 dB | +9.0 to +10.8 dB |
+
+These are computed from the measurements, not measured on a Stomp. A straight line of levels misses the
+amp's real curve by 1.4 dB in the median amp and 4.3 dB at worst, on Matchstick Ch2, which falls silent
+below Drive 1.
+
+All 35 were imported, and with a guitar through Brit 2204, Cali Rectifire and US Deluxe, each at clean,
+crunch and heavy, the amps sounded well matched (7 November 2026). The other amps haven't been heard.
+On the Stomp, CC 26 on Fullerton and Agua Sledge reached exactly their calibrated maximum.
+
+**What it leaves out:**
+
+- The amp and cab alone are measured. The compressor in Clean and the drive block in Heavy add level and
+  distortion on top, so those two may sit a little high.
+- Native's cab runs full range, while the presets cut below 80 Hz and above 9 kHz.
+- Ch Vol is taken as linear, as above, on amps whose default it had to lower.
+
+An arrangement's amp is the one it plays longest. Its other amps play through that preset, so about a
+quarter of arrangements lose an amp for part of the song. DI amps, used for acoustic parts, never pick
+the preset. A song with no preset for its amp uses the preset of its style.
+
+**Checked on a Stomp (7 November 2026, firmware as in HX Edit 3.82):** the three presets imported and
+loaded with every block, and HX Edit lists all their MIDI rows, so the two MIDI forms under
+[Not verified](#not-verified) work. CCs sent to the Stomp set the amp, delay and reverb exactly as the
+table says, with the song load's Program Change, 500 ms wait and a 17-message burst. This was read from
+HX Edit, not heard.
+
+**The order matters.** A CC sent just before a snapshot change, in the same burst, is lost. After the
+change it arrives. So keep the `category` steps first in a tone's messages, as the app does.
+
+**Heard on a Stomp:** a jump from clean to heavy by CC, with a guitar through 02A, sounded smooth. 
+
 
 ## Sources
 

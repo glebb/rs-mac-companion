@@ -26,6 +26,19 @@ struct Profile: Equatable, Identifiable {
         case device(String)         // sent straight to the MIDI destination of this name
     }
 
+    /// A CC that follows a value of the tone (knobSources): the value's range onto 0-127.
+    struct Knob: Equatable {
+        var cc: Int
+        var from: String
+        var range: [Double]         // the value at CC 0, and at CC 127
+        var fallback: Int?          // sent for a tone without the value; nil sends nothing
+
+        func value(_ values: [String: Double]) -> Int? {
+            guard let v = values[from] else { return fallback }
+            return Int((min(max((v - range[0]) / (range[1] - range[0]), 0), 1) * 127).rounded())
+        }
+    }
+
     struct Invalid: Error { let why: String }
 
     /// The file name without .json.
@@ -35,6 +48,8 @@ struct Profile: Equatable, Identifiable {
     var channel = 1
     /// By style; "*" is any style without its own.
     var songLoad: [String: [Step]] = [:]
+    /// By the song's amp ("Amp_CA100"), ahead of songLoad.
+    var ampLoad: [String: [Step]] = [:]
     /// Run the song's load sequence again when the song is described anew (its mapping or AI
     /// answer changed). Off, a device isn't switched while the song plays.
     var songLoadAgain = false
@@ -44,9 +59,16 @@ struct Profile: Equatable, Identifiable {
     var toneFirstProgram: Int?
     /// Effect kind (see effectKinds) -> CC, 127 when the tone has it and 0 when not.
     var effects: [String: Int] = [:]
+    var knobs: [Knob] = []
 
     static let defaultID = "program-changes"
     static let effectKinds = ["delay", "reverb", "chorus", "flanger", "phaser", "tremolo", "vibe"]
+    /// What a knob can follow, with its range when the file gives none. See Rig.values.
+    static let knobSources: [String: [Double]] = [
+        "drive": [0, 1], "gain": [0, 100], "bass": [0, 100], "mid": [0, 100], "treble": [0, 100], "presence": [0, 100],
+        "delay_time": [0, 2000], "delay_mix": [0, 100], "delay_feedback": [0, 100],
+        "reverb_mix": [0, 100], "modulation_mix": [0, 100], "modulation_rate": [0, 100],
+    ]
 
     /// Used when no profile can be read: nothing but the category Program Changes, from the
     /// virtual source.
@@ -54,18 +76,33 @@ struct Profile: Equatable, Identifiable {
                                category: Category.allCases.map { [.pc($0.rawValue)] })
 
     /// Whether the song's gear has to be read from its archive.
-    var needsSongData: Bool { !songLoad.isEmpty || toneFirstProgram != nil || !effects.isEmpty }
+    var needsSongData: Bool {
+        !songLoad.isEmpty || !ampLoad.isEmpty || toneFirstProgram != nil || !effects.isEmpty || !knobs.isEmpty
+    }
 
-    func songLoadSteps(style: String) -> [Step] { songLoad[style] ?? songLoad["*"] ?? [] }
+    /// The sequence of the amp that plays longest among those listed, amps with the same sequence
+    /// counting as one (of equally long ones the first played), else the style's.
+    func songLoadSteps(style: String, amps: [(key: String, seconds: Double)] = []) -> [Step] {
+        var found: [(steps: [Step], seconds: Double)] = []
+        for amp in amps {
+            guard let steps = ampLoad[amp.key] else { continue }
+            if let i = found.firstIndex(where: { $0.steps == steps }) { found[i].seconds += amp.seconds } else { found.append((steps, amp.seconds)) }
+        }
+        let longest = found.reduce(nil) { (best: (steps: [Step], seconds: Double)?, a) in best.map { a.seconds > $0.seconds ? a : $0 } ?? a }
+        return longest?.steps ?? songLoad[style] ?? songLoad["*"] ?? []
+    }
 
-    /// What plays a tone: the first steps set the sound, and the effect CCs follow, all of them
-    /// on or off, since a device's snapshot may have just reset them. Kinds sharing a CC count
-    /// as one. `toneIndex` is the tone's place among the song's tones, if it's one of them.
-    func toneSteps(category c: Category, toneIndex: Int?, effectKinds on: Set<String>) -> [Step] {
+    /// What plays a tone: the first steps set the sound, then the knobs, then the effect CCs, all
+    /// of them on or off, since a device's snapshot may have just reset them, and last so an effect
+    /// comes on already set. Kinds sharing a CC count as one. `toneIndex` is the tone's place among
+    /// the song's tones, if it's one of them.
+    func toneSteps(category c: Category, toneIndex: Int?, effectKinds on: Set<String>,
+                   knobValues: [String: Double] = [:]) -> [Step] {
         var steps = category[c.rawValue]
         if let first = toneFirstProgram, let toneIndex { steps = [.pc(first + toneIndex)] }
         let active = Set(effects.filter { on.contains($0.key) }.values)
-        return steps + Set(effects.values).sorted().map { .cc($0, active.contains($0) ? 127 : 0) }
+        let turned = knobs.compactMap { knob in knob.value(knobValues).map { Step.cc(knob.cc, $0) } }
+        return steps + turned + Set(effects.values).sorted().map { .cc($0, active.contains($0) ? 127 : 0) }
     }
 
     var destinationLabel: String {
@@ -96,7 +133,7 @@ struct Profile: Equatable, Identifiable {
             throw Invalid(why: "not valid JSON")
         }
         let known = ["name", "comment", "destination", "channel", "song_load", "song_load_again", "category",
-                     "tone_first_program", "effects"]
+                     "tone_first_program", "effects", "amp_load", "knobs"]
         if let unknown = json.keys.sorted().first(where: { !known.contains($0) }) {
             throw Invalid(why: "unknown key \"\(unknown)\"")
         }
@@ -111,6 +148,13 @@ struct Profile: Equatable, Identifiable {
         if let value = json["song_load"] {
             guard let styles = value as? [String: Any] else { throw Invalid(why: "\"song_load\" is an object of styles") }
             p.songLoad = try styles.mapValues { try steps($0) }
+        }
+        if let value = json["amp_load"] {
+            guard let amps = value as? [String: Any] else { throw Invalid(why: "\"amp_load\" is an object of amps") }
+            if let wrong = amps.keys.sorted().first(where: { !$0.contains("Amp_") }) {
+                throw Invalid(why: "\"\(wrong)\" isn't an amp: they read like Amp_CA100")
+            }
+            p.ampLoad = try amps.mapValues { try steps($0) }
         }
         if let value = json["song_load_again"] {
             guard let again = value as? Bool else { throw Invalid(why: "\"song_load_again\" is true or false") }
@@ -135,7 +179,36 @@ struct Profile: Equatable, Identifiable {
                 p.effects[kind] = try number(cc, "effects \(kind)", 0...127)
             }
         }
+        if let value = json["knobs"] {
+            guard let list = value as? [Any] else { throw Invalid(why: "\"knobs\" is a list") }
+            p.knobs = try list.map(knob)
+            let ccs = p.knobs.map(\.cc)
+            if let twice = ccs.first(where: { cc in ccs.filter { $0 == cc }.count > 1 }) {
+                throw Invalid(why: "two knobs on CC \(twice)")
+            }
+            if let shared = ccs.first(where: p.effects.values.contains) {
+                throw Invalid(why: "CC \(shared) is both a knob and an effect")
+            }
+        }
         return p
+    }
+
+    private static func knob(_ value: Any) throws -> Knob {
+        guard let d = value as? [String: Any] else { throw Invalid(why: "a knob is an object") }
+        if let unknown = d.keys.sorted().first(where: { !["cc", "from", "range", "default"].contains($0) }) {
+            throw Invalid(why: "unknown knob key \"\(unknown)\"")
+        }
+        let cc = try number(d["cc"], "knob cc", 0...127)
+        guard let from = d["from"] as? String, var range = knobSources[from] else {
+            throw Invalid(why: "a knob's \"from\" is one of \(knobSources.keys.sorted().joined(separator: ", "))")
+        }
+        if let value = d["range"] {
+            guard let pair = (value as? [NSNumber])?.map(\.doubleValue), pair.count == 2, pair[0] != pair[1] else {
+                throw Invalid(why: "a knob's \"range\" is two different numbers")
+            }
+            range = pair
+        }
+        return Knob(cc: cc, from: from, range: range, fallback: try d["default"].map { try number($0, "knob default", 0...127) })
     }
 
     private static func number(_ value: Any?, _ what: String, _ range: ClosedRange<Int>) throws -> Int {
@@ -200,9 +273,15 @@ struct Profile: Equatable, Identifiable {
         case .device(let name): out["destination"] = name
         }
         out["song_load"] = songLoad.mapValues(encode)
+        out["amp_load"] = ampLoad.mapValues(encode)
         out["category"] = Dictionary(uniqueKeysWithValues: Category.allCases.map { ($0.name, encode(category[$0.rawValue])) })
         if let toneFirstProgram { out["tone_first_program"] = toneFirstProgram }
         out["effects"] = effects
+        out["knobs"] = knobs.map { knob -> [String: Any] in
+            var k: [String: Any] = ["cc": knob.cc, "from": knob.from, "range": knob.range]
+            k["default"] = knob.fallback
+            return k
+        }
         return (try? JSONSerialization.data(withJSONObject: out, options: [.prettyPrinted, .sortedKeys])) ?? Data()
     }
 

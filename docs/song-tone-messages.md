@@ -19,7 +19,7 @@ category Program Changes, as described in the [README](../README.md#use).
 - **Message:** one System Exclusive message. Its first byte after F0 is `0x7D`, the
   manufacturer ID set aside for non-commercial use, and the rest is JSON text (UTF-8, with
   anything outside 7-bit ASCII written as `\u` escapes, so every byte is under 0x80).
-  It's sent as MIDI 1.0 UMP SysEx7 packets, 6 bytes each. A typical message is 300–600 bytes.
+  It's sent as MIDI 1.0 UMP SysEx7 packets, 6 bytes each. A typical message is 400–1,200 bytes.
 - **Telling it apart:** check for `0x7D`, then that the JSON has `"kind": "song-tones"`, then
   check `"v"`. Ignore any other kind or version.
 - **The first second after RS Companion starts:** everything it sends in that second is held
@@ -47,8 +47,10 @@ For example (the effect values are illustrative):
  "song": "18 And Life", "artist": "Skid Row", "arrangement": "skid18an_lead",
  "heaviness": 0.72, "tempo": 92.4, "low_string": 0,
  "style": "Classic rock", "styles": ["Soft", "Classic rock", "Metal"],
+ "main_amp": "Amp_MarshallJCM800",
  "tones": [
-   {"program": 8, "key": "skid18an_clean", "category": "Clean",
+   {"program": 8, "key": "skid18an_clean", "category": "Clean", "drive": 0.21,
+    "amp": {"gear": "Amp_MarshallJCM800", "gain": 30, "bass": 50, "mid": 60, "treble": 55},
     "effects": {"modulation": {"kind": "chorus", "gear": "Pedal_Chorus", "mix": 60, "rate": 2.5},
                 "reverb": {"gear": "Rack_StudioVerb", "mix": 25}}},
    {"program": 9, "key": "skid18an_dist", "category": "Heavy", "effects": {}},
@@ -69,6 +71,7 @@ For example (the effect values are illustrative):
 | `low_string` | semitones, may be missing | the low string's tuning relative to E standard, with its cent offset (−2 = D standard or drop D) |
 | `style` | text | a label for the song: set for it in `presets.json`, else the AI's answer, else picked from its heaviness (see [Styles](#styles)) |
 | `styles` | list of text | every label a song can get, so a receiver can prepare for each in advance |
+| `main_amp` | text, may be missing | the Rocksmith amp the arrangement plays longest |
 
 ### The tones
 
@@ -80,6 +83,8 @@ plays them, so the first one is needed first.
 | `program` | 0–127 | the Program Change that plays this tone during the song |
 | `key` | text | Rocksmith's name for the tone, e.g. `skid18an_dist` |
 | `category` | Clean, Crunch, Heavy or Lead | what RS Companion maps the tone to (`presets.json`, overrides included). It's the same category the tone gets when it plays |
+| `drive` | 0–1, may be missing | how distorted the tone should sound, on any amp: the song's gear, corrected by its AI `gain_offset`, kept in the band of the tone's `category` ([Knobs](device-profiles.md#knobs)) |
+| `amp` | object, may be missing | the tone's amp as the song sets it: `gear` (e.g. `Amp_CA100`), and `gain`, `bass`, `mid`, `treble` and `presence` (0–100), each when the amp has it |
 | `effects` | object | the tone's time-based and modulation effects, as below. An effect that's missing means the tone doesn't have one |
 
 `effects` describes what the song's gear has, with Rocksmith's knob values: no caps, no
@@ -91,9 +96,11 @@ conversions. If a tone has more than one effect of a kind, the one with the most
 | `modulation` | `kind`: `chorus`, `flanger`, `phaser`, `tremolo` or `vibe`; `gear`; `mix` and `rate` when the gear has them |
 | `reverb` | `gear`; `mix` when the gear has it |
 
-Amp, cabinet and drive settings aren't included. They're tuned to Rocksmith's own amp models
-and don't carry over to other gear well; the `category` (and the `style`) tell a receiver how
-driven the tone should be.
+`amp`'s knobs are tuned to Rocksmith's own amp models and don't carry over to other gear well:
+`category`, `style` and `drive` are what tell a receiver how driven the tone should be. Cabinets
+aren't included.
+
+A receiver should ignore fields it doesn't know: new ones are added within version 2.
 
 ### Program Changes
 

@@ -51,6 +51,61 @@ import Foundation
         check(stomp.toneSteps(category: .clean, toneIndex: nil, effectKinds: ["ring modulator"]).contains(.cc(21, 0)),
               "an unmapped kind switches nothing on")
 
+        // HX Stomp by amp: the song's amp picks the preset, the style only when no preset has it.
+        let amps = load(dir, "hx-stomp-amps")
+        check(amps.songLoadSteps(style: "Metal", amps: [("Amp_GB100", 60)]) == [.pc(3), .wait(500)], "the amp's preset")
+        check(amps.songLoadSteps(style: "Metal", amps: [("Amp_Unknown", 60)]) == [.pc(2), .wait(500)], "the style's preset")
+        check(amps.toneSteps(category: .lead, toneIndex: 0, effectKinds: [], knobValues: ["drive": 1, "reverb_mix": 50]).prefix(4)
+              == [.cc(69, 2), .cc(20, 127), .cc(26, 127), .cc(35, 64)], "Stomp knobs")
+
+        // Amp load: the listed amp that plays longest, amps on one sequence adding up, else the style.
+        let byAmp = try! Profile.parse(Data(#"""
+            {"name": "x", "song_load": {"*": [{"pc": 1}]},
+             "amp_load": {"Amp_A": [{"pc": 10}], "Amp_B": [{"pc": 11}], "Amp_C": [{"pc": 11}]},
+             "effects": {"delay": 24},
+             "knobs": [{"cc": 30, "from": "drive"}, {"cc": 31, "from": "delay_time", "range": [100, 1100]},
+                       {"cc": 32, "from": "reverb_mix", "default": 5}, {"cc": 33, "from": "gain", "range": [100, 0]}]}
+            """#.utf8), id: "x")
+        check(byAmp.needsSongData, "knobs and amps need the song's gear")
+        check(byAmp.songLoadSteps(style: "Soft") == [.pc(1)], "no amps: the style")
+        check(byAmp.songLoadSteps(style: "Soft", amps: [("Amp_Z", 90)]) == [.pc(1)], "an amp not listed: the style")
+        check(byAmp.songLoadSteps(style: "Soft", amps: [("Amp_Z", 90), ("Amp_A", 5)]) == [.pc(10)], "the longest of those listed")
+        check(byAmp.songLoadSteps(style: "Soft", amps: [("Amp_A", 50), ("Amp_B", 30), ("Amp_C", 30)]) == [.pc(11)],
+              "amps on one sequence add up")
+        check(byAmp.songLoadSteps(style: "Soft", amps: [("Amp_A", 30), ("Amp_B", 30)]) == [.pc(10)], "a tie goes to the first played")
+
+        // Knobs: after the sound, before the effects; clamped; a missing value sends its default or nothing.
+        check(byAmp.toneSteps(category: .clean, toneIndex: 0, effectKinds: ["delay"],
+                              knobValues: ["drive": 0.5, "delay_time": 5000, "gain": 25])
+              == [.cc(30, 64), .cc(31, 127), .cc(32, 5), .cc(33, 95), .cc(24, 127)], "knob steps")
+        check(byAmp.toneSteps(category: .clean, toneIndex: nil, effectKinds: []) == [.cc(32, 5), .cc(24, 0)], "a tone without values")
+
+        // The drive: the AI moves distorted tones, clean ones stay, and the category has the last word.
+        func near(_ a: Double, _ b: Double) -> Bool { abs(a - b) < 0.001 }
+        check(near(Rig.corrected(0.8, offset: 0, category: .heavy), 0.8), "no correction")
+        check(near(Rig.corrected(0.8, offset: 1, category: .crunch), 0.4667), "a step down")
+        check(near(Rig.corrected(0.2, offset: 1, category: .clean), 0.2), "a clean tone stays")
+        check(near(Rig.corrected(0.8, offset: 0, category: .clean), 1.0 / 3), "an override to Clean stays clean")
+        check(near(Rig.corrected(0.1, offset: 0, category: .heavy), 2.0 / 3), "an override to Heavy is heavy")
+        check(near(Rig.corrected(0.95, offset: 0, category: .lead), 0.95), "Lead has no band")
+        check(near(Rig.corrected(0.9, offset: -1, category: .lead), 1), "at most 1")
+
+        // The AI's correction for rs-tonehost: never waits, and goes only to a FIFO someone reads.
+        let fifo = NSTemporaryDirectory() + "rsc-commands-\(getpid())"
+        defer { unlink(fifo) }
+        check(!ToneHost.send(offset: 1, to: fifo), "no file: nothing sent")
+        mkfifo(fifo, 0o600)
+        check(!ToneHost.send(offset: 1, to: fifo), "no host reading: nothing sent, and no wait")
+        let reader = open(fifo, O_RDONLY | O_NONBLOCK)
+        check(ToneHost.send(offset: 0.5, to: fifo), "a host reading")
+        var line = [UInt8](repeating: 0, count: 32)
+        let got = read(reader, &line, 32)
+        check(got > 0 && String(decoding: line[..<got], as: UTF8.self) == "offset 0.5\n", "the line")
+        close(reader)
+        unlink(fifo)
+        FileManager.default.createFile(atPath: fifo, contents: Data())
+        check(!ToneHost.send(offset: 1, to: fifo), "an ordinary file isn't written to")
+
         // Settings from before profiles.
         check(Profile.legacy(json: [:]).sendsTheSame(as: plain), "no settings = Program Changes")
         check(Profile.legacy(json: ["song_tones": true]).sendsTheSame(as: stagehand), "song tones on = Stagehand")
@@ -62,6 +117,8 @@ import Foundation
         var all = custom
         all.category[0] = [.pc(1), .wait(50), .cc(7, 100), .bytes([0xF0, 0x7E, 0x7F, 0x06, 0x01, 0xF7]), .bytes([0xC0, 3])]
         all.effects = ["delay": 30]
+        all.ampLoad = ["Amp_CA100": [.pc(9), .wait(500)]]
+        all.knobs = [.init(cc: 40, from: "drive", range: [0, 1], fallback: nil), .init(cc: 41, from: "reverb_mix", range: [50, 0], fallback: 3)]
         all.destination = .device("Some Amp")
         check((try? Profile.parse(all.json, id: all.id)) == all, "file round trip")
 
@@ -78,6 +135,16 @@ import Foundation
         rejects(#"{"name": "x", "category": {"Clean": [{"bytes": "B0 45"}]}}"#, "one MIDI message")
         rejects(#"{"name": "x", "category": {"Clean": [{"bytes": "zz"}]}}"#, "bad bytes")
         rejects(#"{"name": "x", "effects": {"wah": 3}}"#, "unknown effect")
+
+        rejects(#"{"name": "x", "amp_load": {"CA100": []}}"#, "isn't an amp")
+        rejects(#"{"name": "x", "knobs": {}}"#, "is a list")
+        rejects(#"{"name": "x", "knobs": [{"cc": 30, "from": "volume"}]}"#, "\"from\"")
+        rejects(#"{"name": "x", "knobs": [{"cc": 300, "from": "drive"}]}"#, "knob cc")
+        rejects(#"{"name": "x", "knobs": [{"cc": 30, "from": "drive", "scale": 2}]}"#, "unknown knob key")
+        rejects(#"{"name": "x", "knobs": [{"cc": 30, "from": "drive", "range": [1, 1]}]}"#, "range")
+        rejects(#"{"name": "x", "knobs": [{"cc": 30, "from": "drive", "default": 128}]}"#, "knob default")
+        rejects(#"{"name": "x", "knobs": [{"cc": 30, "from": "drive"}, {"cc": 30, "from": "gain"}]}"#, "two knobs")
+        rejects(#"{"name": "x", "effects": {"delay": 30}, "knobs": [{"cc": 30, "from": "drive"}]}"#, "both a knob and an effect")
 
         print(failures == 0 ? "PASS (unit)" : "FAIL (unit): \(failures)")
         exit(failures == 0 ? 0 : 1)

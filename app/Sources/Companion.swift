@@ -640,6 +640,10 @@ final class Companion: ObservableObject {
     /// When the profile uses them, reads the song's tones from its archive (once per arrangement;
     /// again when the mapping changes), and runs the profile's song load sequence.
     private func makeSongTones(force: Bool = false) {
+        if !arrangement.isEmpty {
+            let offset = presets.gainOffset(Presets.songKey(arrangement))
+            if ToneHost.send(offset: offset), offset != 0 { record("tonehost: gain offset \(offset)") }
+        }
         guard profile.needsSongData, let song, !arrangement.isEmpty, !archive.isEmpty else {
             if !profile.needsSongData { madeTones = nil }
             return
@@ -653,6 +657,7 @@ final class Companion: ObservableObject {
         guard !rigArrangements.isEmpty,
               var made = SongTones.make(song: song, artist: artist, arrangement: arrangement, from: rigArrangements,
                                         firstProgram: profile.toneFirstProgram ?? SongTones.defaultFirstProgram,
+                                        gainOffset: presets.gainOffset(Presets.songKey(arrangement)),
                                         category: { slot, key in
                                             self.match(self.gameTone(slot: slot, key: key)).category
                                         },
@@ -666,11 +671,11 @@ final class Companion: ObservableObject {
         if !again || profile.songLoadAgain { runSongLoad() }
     }
 
-    /// The profile's sequence for the song's style. A device that was switched here starts from
+    /// The profile's sequence for the song's amp or style. A device that was switched here starts from
     /// what it stored, so the tone's messages count as not sent.
     private func runSongLoad() {
         guard let made = madeTones else { return }
-        let steps = profile.songLoadSteps(style: made.style)
+        let steps = profile.songLoadSteps(style: made.style, amps: made.amps)
         guard !steps.isEmpty else { return }
         let label = Profile.label(steps)
         if paused {
@@ -741,8 +746,9 @@ final class Companion: ObservableObject {
         guard let category = activeCategory else { return nil }
         let index = active.flatMap { tone in madeTones?.tones.firstIndex { $0.key.lowercased() == tone.tone.lowercased() } }
         let kinds = index.flatMap { madeTones?.tones[$0].effects.kinds } ?? []
+        let values = index.flatMap { madeTones?.tones[$0].values } ?? [:]
         let songTone = index != nil && profile.toneFirstProgram != nil
-        return (profile.toneSteps(category: category, toneIndex: index, effectKinds: kinds),
+        return (profile.toneSteps(category: category, toneIndex: index, effectKinds: kinds, knobValues: values),
                 songTone ? "song tone, \(category.name)" : category.name)
     }
 

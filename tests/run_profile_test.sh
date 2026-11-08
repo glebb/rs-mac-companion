@@ -4,7 +4,8 @@
 # run_song_tones_test.sh: the in-game dylib runs in the stand-in with Self Trap (Rhythm, comes
 # with the game), a profile sends straight to a test MIDI device (tools/midi_monitor.swift
 # --device), and a second monitor watches the virtual source. Expected at the device, on channel 3:
-# the song load sequence in order, its wait kept, then the snapshot and effect CCs for each tone.
+# the sequence of the song's amp in order, its wait kept, then the snapshot, knob and effect CCs for
+# each tone.
 # On the virtual source: nothing. About 50 s.
 # Uses a temporary data folder, so your own data and a running RS Companion are not touched
 # (the MIDI source name is the same, so quit a running RS Companion first).
@@ -23,6 +24,7 @@ trap 'kill $APP $MONITOR $DEVICE $STANDIN 2>/dev/null || true; wait 2>/dev/null;
 clang -O1 -c native/rsfile.c -o "$DATA/rsfile.o"
 swiftc -parse-as-library -import-objc-header app/Sources/rsfile-bridge.h tests/profile_harness.swift \
   app/Sources/Profile.swift app/Sources/SongTones.swift app/Sources/Category.swift app/Sources/Rig.swift \
+  app/Sources/ToneHost.swift \
   "$DATA/rsfile.o" -lz -o "$DATA/harness" 2>&1 | grep -v warning || true
 "$DATA/harness" profiles
 
@@ -40,17 +42,22 @@ cat > "$DATA/profiles/test-device.json" <<'JSON'
   "name": "Test device",
   "destination": "RS Test Device",
   "channel": 3,
-  "song_load": {"*": [{"pc": 100}, {"wait_ms": 300}, {"bytes": "B2 46 01"}, {"song_tones_message": true}]},
+  "song_load": {"*": [{"pc": 99}]},
+  "amp_load": {"Amp_TW40": [{"pc": 100}, {"wait_ms": 300}, {"bytes": "B2 46 01"}, {"song_tones_message": true}]},
   "category": {
     "Clean":  [{"cc": 69, "value": 0}],
     "Crunch": [{"cc": 69, "value": 1}],
     "Heavy":  [{"cc": 69, "value": 2}],
     "Lead":   [{"cc": 69, "value": 2}, {"cc": 20, "value": 127}]
   },
-  "effects": {"chorus": 21, "flanger": 21, "delay": 24}
+  "effects": {"chorus": 21, "flanger": 21, "delay": 24},
+  "knobs": [{"cc": 30, "from": "drive"}, {"cc": 31, "from": "bass"},
+            {"cc": 32, "from": "delay_time"}, {"cc": 33, "from": "reverb_mix", "default": 5}]
 }
 JSON
 echo '{"profile": "test-device"}' > "$DATA/rscompanion.json"
+# The AI's correction reaches the drive knob of a distorted tone.
+echo '{"selftrap": {"style": "Classic rock", "distortion": "crunch", "gain_offset": 0.3, "confidence": "high", "reason": "test"}}' > "$DATA/ai_classified.json"
 build/midi_monitor --device "RS Test Device" > "$DATA/device.txt" & DEVICE=$!
 sleep 1
 RS_COMPANION_DATA="$DATA" "$APP_BIN" & APP=$!
@@ -76,16 +83,21 @@ elif (events[1][0] - events[0][0]).total_seconds() < 0.28:
 if len(got) < 3 or not got[2].startswith("SysEx") or '"song-tones"' not in got[2]:
     problems.append("no song tones message after the song load steps")
 tones = [g for g in got[3:]]
-# Self Trap's clean tone, then its dist tone: a snapshot, then both effect CCs, off.
-want_tail = ["Control Change 21 = 0 ch 3", "Control Change 24 = 0 ch 3"]
-if len(tones) != 6 or tones[1:3] != want_tail or tones[4:6] != want_tail:
+# Self Trap's clean tone, then its dist tone: a snapshot, the knobs, then both effect CCs, off.
+# Bass 48, then 55; no delay, so CC 32 stays silent; no reverb, so CC 33 sends its default.
+effects = ["Control Change 21 = 0 ch 3", "Control Change 24 = 0 ch 3"]
+fixed = lambda bass: [f"Control Change 31 = {bass} ch 3", "Control Change 33 = 5 ch 3"] + effects
+if len(tones) != 12 or tones[2:6] != fixed(61) or tones[8:12] != fixed(70):
     problems.append(f"tone messages: {tones}")
-if not all(tones[i].startswith("Control Change 69 = ") for i in (0, 3)) or tones[0] == tones[3]:
-    problems.append(f"snapshots: {tones[0:1] + tones[3:4]}")
+if not all(tones[i].startswith("Control Change 69 = ") for i in (0, 6)) or tones[0] == tones[6]:
+    problems.append(f"snapshots: {tones[0:1] + tones[6:7]}")
+drive = [int(re.search(r"Control Change 30 = (\d+)", t).group(1)) if "Change 30 =" in t else -1 for t in tones[1:2] + tones[7:8]]
+if drive != [42, 59]:  # clean: the top of the clean band, 1/3. Crunch: 0.57 less 0.3/3
+    problems.append(f"drive knob: {drive}")
 virtual = [l for l in open(sys.argv[2]) if "Program Change" in l or "Control Change" in l or "SysEx" in l]
 if virtual:
     problems.append(f"sent on the virtual source too: {virtual[:2]}")
-for name in ("program-changes.json", "stagehand.json", "hx-stomp.json"):
+for name in ("program-changes.json", "stagehand.json", "hx-stomp.json", "hx-stomp-amps.json"):
     if not os.path.exists(os.path.join(sys.argv[3], name)):
         problems.append(f"{name} wasn't put in the profiles folder")
 print("PASS" if not problems else "FAIL: " + "; ".join(problems))

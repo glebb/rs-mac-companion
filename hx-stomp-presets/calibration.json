@@ -1,0 +1,392 @@
+{
+ "_": "From tools/calibrate_stomp.py: Helix Native's amps measured, for make_stomp_presets.py. target_db is where a guitar's peaks at -18 dB come out.",
+ "amps": {
+  "AmpAgua51": {
+   "gain": [
+    0.15,
+    0.955
+   ],
+   "level_db": [
+    -1.3,
+    -12.7
+   ],
+   "level_miss_db": 1.5
+  },
+  "AmpAguaSledge": {
+   "gain": [
+    0.194,
+    1
+   ],
+   "level_db": [
+    1.4,
+    -13.7
+   ],
+   "level_miss_db": 1.1
+  },
+  "AmpBrit2203": {
+   "gain": [
+    0.2,
+    0.786
+   ],
+   "level_db": [
+    9.7,
+    -8.0
+   ],
+   "level_miss_db": 1.4
+  },
+  "AmpBrit2204": {
+   "gain": [
+    0,
+    0.138
+   ],
+   "level_db": [
+    5.8,
+    -5.3
+   ],
+   "level_miss_db": 1.4
+  },
+  "AmpBritJ45Brt": {
+   "gain": [
+    0.15,
+    0.74
+   ],
+   "level_db": [
+    2.6,
+    -7.1
+   ],
+   "level_miss_db": 1.2
+  },
+  "AmpBritJ45Nrm": {
+   "gain": [
+    0.27,
+    0.817
+   ],
+   "level_db": [
+    8.4,
+    -7.9
+   ],
+   "level_miss_db": 1.2
+  },
+  "AmpBritP75Nrm": {
+   "gain": [
+    0.1,
+    0.379
+   ],
+   "level_db": [
+    4.1,
+    -6.0
+   ],
+   "level_miss_db": 2.4
+  },
+  "AmpBritPlexiBrt": {
+   "gain": [
+    0.15,
+    0.369
+   ],
+   "level_db": [
+    9.1,
+    -0.4
+   ],
+   "level_miss_db": 2.0
+  },
+  "AmpCali400Ch1": {
+   "gain": [
+    0.194,
+    0.927
+   ],
+   "level_db": [
+    6.1,
+    -10.5
+   ],
+   "level_miss_db": 0.7
+  },
+  "AmpCaliIVR2": {
+   "gain": [
+    0,
+    0.579
+   ],
+   "level_db": [
+    1.5,
+    -6.0
+   ],
+   "level_miss_db": 1.0
+  },
+  "AmpCaliRectifire": {
+   "gain": [
+    0,
+    0.385
+   ],
+   "level_db": [
+    -2.0,
+    -7.8
+   ],
+   "level_miss_db": 0.9
+  },
+  "AmpCaliTexasCh1": {
+   "gain": [
+    0.2,
+    0.843
+   ],
+   "level_db": [
+    5.5,
+    -5.6
+   ],
+   "level_miss_db": 1.1
+  },
+  "AmpDasBenzinMega": {
+   "gain": [
+    0,
+    0.172
+   ],
+   "level_db": [
+    11.1,
+    -3.2
+   ],
+   "level_miss_db": 1.4
+  },
+  "AmpEssexA30": {
+   "gain": [
+    0.15,
+    0.584
+   ],
+   "level_db": [
+    7.9,
+    -5.7
+   ],
+   "level_miss_db": 2.6
+  },
+  "AmpFullertonNrm": {
+   "gain": [
+    0.15,
+    0.404
+   ],
+   "level_db": [
+    2.7,
+    -3.5
+   ],
+   "level_miss_db": 1.8
+  },
+  "AmpGCougar800": {
+   "gain": [
+    0.4,
+    1
+   ],
+   "level_db": [
+    0.1,
+    -12.2
+   ],
+   "level_miss_db": 0.7
+  },
+  "AmpGrammaticoNrm": {
+   "gain": [
+    0.075,
+    0.753
+   ],
+   "level_db": [
+    0.5,
+    -4.9
+   ],
+   "level_miss_db": 2.6
+  },
+  "AmpJazzRivet120": {
+   "gain": [
+    0.15,
+    1
+   ],
+   "level_db": [
+    -0.7,
+    -9.5
+   ],
+   "level_miss_db": 1.7
+  },
+  "AmpMandarin80": {
+   "gain": [
+    0.1,
+    0.635
+   ],
+   "level_db": [
+    9.6,
+    -4.1
+   ],
+   "level_miss_db": 2.9
+  },
+  "AmpMandarinBass200": {
+   "gain": [
+    0.15,
+    0.588
+   ],
+   "level_db": [
+    0.4,
+    -6.2
+   ],
+   "level_miss_db": 1.8
+  },
+  "AmpMandarinRocker": {
+   "gain": [
+    0.2,
+    0.524
+   ],
+   "level_db": [
+    4.1,
+    -7.1
+   ],
+   "level_miss_db": 2.0
+  },
+  "AmpMatchstickCh1": {
+   "gain": [
+    0.15,
+    0.535
+   ],
+   "level_db": [
+    2.2,
+    -5.9
+   ],
+   "level_miss_db": 2.2
+  },
+  "AmpMatchstickCh2": {
+   "gain": [
+    0.1,
+    0.261
+   ],
+   "level_db": [
+    5.9,
+    -7.0
+   ],
+   "level_miss_db": 4.3
+  },
+  "AmpSVBeastBrt": {
+   "gain": [
+    0.1,
+    0.872
+   ],
+   "level_db": [
+    7.6,
+    -6.6
+   ],
+   "level_miss_db": 2.2
+  },
+  "AmpSVBeastNrm": {
+   "gain": [
+    0.149,
+    0.532
+   ],
+   "level_db": [
+    8.5,
+    -4.0
+   ],
+   "level_miss_db": 1.2
+  },
+  "AmpSoloLeadOD": {
+   "gain": [
+    0,
+    0.102
+   ],
+   "level_db": [
+    3.1,
+    -3.4
+   ],
+   "level_miss_db": 1.7
+  },
+  "AmpTucknGo": {
+   "gain": [
+    0.153,
+    0.828
+   ],
+   "level_db": [
+    2.6,
+    -11.7
+   ],
+   "level_miss_db": 0.9
+  },
+  "AmpTweedBluesNrm": {
+   "gain": [
+    0,
+    0.321
+   ],
+   "level_db": [
+    3.4,
+    -3.1
+   ],
+   "level_miss_db": 0.6
+  },
+  "AmpUSDeluxeNrm": {
+   "gain": [
+    0.4,
+    0.817
+   ],
+   "level_db": [
+    -3.5,
+    -11.8
+   ],
+   "level_miss_db": 1.3
+  },
+  "AmpUSDoubleNrm": {
+   "gain": [
+    0.282,
+    0.928
+   ],
+   "level_db": [
+    6.7,
+    -8.7
+   ],
+   "level_miss_db": 1.2
+  },
+  "AmpUSDripmanNorm": {
+   "gain": [
+    0.15,
+    0.464
+   ],
+   "level_db": [
+    5.5,
+    -2.6
+   ],
+   "level_miss_db": 2.0
+  },
+  "AmpUSPrincess": {
+   "gain": [
+    0.15,
+    0.908
+   ],
+   "level_db": [
+    0.2,
+    -7.9
+   ],
+   "level_miss_db": 1.4
+  },
+  "AmpUSSmallTweed": {
+   "gain": [
+    0.1,
+    0.751
+   ],
+   "level_db": [
+    5.1,
+    -2.2
+   ],
+   "level_miss_db": 1.5
+  },
+  "AmpWhoWatt100": {
+   "gain": [
+    0.263,
+    1
+   ],
+   "level_db": [
+    5.3,
+    -10.3
+   ],
+   "level_miss_db": 1.2
+  },
+  "AmpWoodyBlue": {
+   "gain": [
+    0.4,
+    0.854
+   ],
+   "level_db": [
+    -14.6,
+    -26.9
+   ],
+   "level_miss_db": 1.3
+  }
+ },
+ "not_measured": [],
+ "target_db": -26.5
+}

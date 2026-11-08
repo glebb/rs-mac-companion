@@ -206,6 +206,12 @@ final class Presets {
                       confidence: confidence, reason: a["reason"] as? String ?? "")
     }
 
+    /// How many drive bands the song's tones sit above the record, by its AI answer: 0 with no
+    /// answer, a rejected one, or one that doesn't say.
+    func gainOffset(_ songKey: String) -> Double {
+        isRejected(songKey) ? 0 : answer(songKey)?.gainOffset ?? 0
+    }
+
     /// The category after shifting a distorted tone by the song's gain_offset (in drive bands):
     /// reband the tone's drive lowered by offset/3 and move the category by that band delta. Only
     /// Clean/Crunch/Heavy move; Lead and the like are left alone. Mirrors presets.py _shift.
