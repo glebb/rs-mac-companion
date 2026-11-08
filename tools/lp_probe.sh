@@ -4,6 +4,8 @@
 #                                folder, then build/lp_probe.dylib (needs RS Re-ARMed's source:
 #                                RS_REARMED_SRC, default ~/src/rs-rearmed)
 #   tools/lp_probe.sh install    also copy it into Learn & Play's mods folder
+#   tools/lp_probe.sh install stats   the same, in statistics mode (the note statistics objects,
+#                                every second for 4 minutes after Play_<key>)
 #   tools/lp_probe.sh remove     take it out again
 set -e
 cd "$(dirname "$0")/.."
@@ -22,12 +24,15 @@ grep -q 'stats: type 01d00300: 1 objects' build/lp_probe_test.out
 grep -q 'stats: type 01d00400: 1 objects' build/lp_probe_test.out
 grep -q 'stats: 2 objects' build/lp_probe_test.out
 grep -q 'timer: 07000008 = ' build/lp_probe_test.out
+grep -q 'stats .*: new object 06900000, type 01d00300' build/lp_probe_test.out
+grep -q 'stats .*: 06900000: +40=' build/lp_probe_test.out
 echo "self-test passed"
 if [ -d "$HOME/Library/Application Support/RS Re-ARMed/learn-play/game/dlc" ]; then
   build/lp_probe_test abbadanc | grep -q '^abbadanc_lead$' && echo "index lookup passed (abbadanc)"
 fi
 clang -arch arm64 -O2 -Wall -Wno-unused-parameter -dynamiclib -undefined dynamic_lookup -I"$RT" \
-  -I"$SRC/tools/ws7/recomp/overrides" -I"$SRC/shims/include" -o build/lp_probe.dylib tools/lp_probe.c native/rsfile.c -lz
+  -I"$SRC/tools/ws7/recomp/overrides" -I"$SRC/shims/include" $([ "$2" = stats ] && echo -DLP_PROBE_STATS) \
+  -o build/lp_probe.dylib tools/lp_probe.c native/rsfile.c -lz
 codesign -s - -f build/lp_probe.dylib
 nm build/lp_probe.dylib | grep -q _rc_mod_abi
 echo "built build/lp_probe.dylib"

@@ -8,6 +8,7 @@
 #     dlc folder: its table of contents and its PC-keyed .sng) and that arrangement is selected,
 #   - the play record locks the song timer (not the decoy 0.42 s ahead, not the stale record),
 #   - the starting tone, then the first change from the timer, on time;
+#   - with the stream overlays on, the note statistics and Score Attack objects in stats events;
 # then (about 30 s) an arrangement without tone changes whose timer copy is freed 8 s in: the play
 # record locks the timer again, in its new copy.
 # Needs Learn & Play's game folder with skid18an_p.psarc (LP_GAME_DIR, default RS Re-ARMed's); skipped
@@ -28,6 +29,7 @@ mkdir -p "$DATA"
 LISTENER=
 trap 'kill $LISTENER 2>/dev/null || true; wait 2>/dev/null; rm -rf "$HOME_DIR"' EXIT
 LOG="$DATA/rscompanion.log" EVENTS="$DATA/events.jsonl"
+echo '{"overlay_enabled": true}' > "$DATA/rscompanion.json"
 python3 tools/event_listener.py --socket "$DATA/events.sock" --out "$EVENTS" > /dev/null 2>&1 &
 LISTENER=$!
 sleep 1
@@ -51,7 +53,17 @@ has("skid18an_lead2: Base=", "the arrangements read (PC .sng)")
 has("selected arrangement skid18an_lead2", "the opened arrangement selected")
 has("the game posted Play_Skid18an", "the song's Play_ event")
 has("play record (Learn & Play): position float at", "the play record found")
-has("note statistics: not on Learn & Play yet", "note statistics off")
+has("note statistics at", "the note statistics object found")
+has(", Score Attack", "the Score Attack object found")
+stats = [e for e in events if e["event"] == "stats" and "hits" in e]
+last = stats[-1] if stats else {}
+print("   last stats:", {k: last.get(k) for k in ("mode", "hits", "misses", "streak", "best_streak", "score",
+                                                   "multiplier", "best_multiplier", "best_miss_streak", "phrases")})
+if not stats or last.get("mode") != "sa" or last.get("misses") != 2 or last.get("multiplier") != 10 \
+        or last.get("best_multiplier") != 11 or last.get("best_miss_streak") != 4 or last.get("phrases", [0])[0] != 3 \
+        or not 60 <= last.get("hits", 0) <= 120 or last.get("score") != last.get("hits", 0) * 100 \
+        or stats[0]["hits"] >= last["hits"]:
+    problems.append("stats: expected Score Attack statistics with hits and the score going up")
 slide = int(re.search(r"slide 0x([0-9a-f]+)", open(standin).read()).group(1), 16)
 lock = [l for l in lines if "play record: song timer is the double at" in l]
 want = f"{slide + 0x50400008:x}"

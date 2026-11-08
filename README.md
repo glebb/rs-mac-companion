@@ -45,7 +45,7 @@ Apple Silicon port: when it's installed, RS Companion installs into it instead, 
 mods folder, which doesn't change the game and survives a reinstall of RS Re-ARMed (another game
 folder can be set in Settings). RS Re-ARMed **Learn & Play** (the Windows game, which RS Re-ARMed
 also runs) works too: the same library goes into its mods folder, alongside the Mac edition's when
-both are installed. There the stream overlays' note statistics aren't available yet.
+both are installed.
 
 ## RS Companion (the in-game version)
 

@@ -246,14 +246,16 @@ its Learn & Play mode:
   a float that advances with the song is its position (found 124 bytes after the name), which picks
   the candidate as on the Mac. Banners are the Mac's text. Details: [game-memory.md § 14](game-memory.md#14-rs-re-armed-learn--play-the-windows-game).
 - `ak_post_event_name` (Wwise `PostEvent`) logs `Play_<SongKey>` and the music's pause and resume.
-- Note statistics (the stream overlays) are off there: the object was found (type `0x01d21048`,
-  111000 at `+0x8`), but its counters don't follow RockSniffer's Windows layout and aren't mapped yet.
+- Note statistics (the stream overlays): the same two objects as on the Mac, found by their guest type
+  pointers (`0x01d21048`, Score Attack `0x01d21208`, 4 bytes) with 111000 at `+0x8`, read with
+  RockSniffer's Windows offsets (`stats_layout` in `rscompanion.c`).
 - What was learned about memory tags goes to `rscompanion_tags_lp.txt`.
 
 `tools/lp_probe.c` (built and tested by `tools/lp_probe.sh`, which can also put it in Learn & Play's
 mods folder and take it out) is the probe these were found with: it logs the game's events and
 opened files, then scans the guest window after `Play_<key>` for the arrangement names, the play
-record, the statistics objects and ticking doubles.
+record, the statistics objects and ticking doubles; `tools/lp_probe.sh install stats` instead logs the
+statistics objects' changed fields every second, to map them against the screen.
 
 **Install / Update** in the Steam game (refused while that game folder's Rocksmith is running):
 1. If the executable has no companion load command yet, copy it to `Rocksmith2014.orig` (the backup
@@ -318,7 +320,7 @@ of the game executable, and on a copy of RS Re-ARMed's app if it's installed. `t
 | `tests/run_song_tones_test.sh` | stand-in → dylib → app with song tone messages on: the SysEx message at song load (style, tones in order of first use with their categories and effects) and Program Change 8 and 9 |
 | `tests/run_profile_test.sh` | the profile format and its rules, then stand-in → dylib → app with a profile sending straight to a test MIDI device: the song load sequence with its wait, the tones' snapshot and effect CCs, nothing on the virtual source |
 | `tests/run_installer_test.sh` | the installer on a copy of the game executable: fresh install, repeat, prototype migration, update, uninstall back to the original bytes, missing game, a damaged executable; Learn & Play alone (a stand-in game folder): its mods folder, update, uninstall; with RS Re-ARMed installed, on a copy of its app: install into and uninstall from the mods folder, moving an install with a load command there, and both mods folders when Learn & Play is installed too |
-| `tests/run_lp_test.sh` | the dylib (arm64) inside `tests/standin_lp.c`, a stand-in for RS Re-ARMed Learn & Play (its mod interface and 4 GB guest window): loaded only for its `rc_mod_abi`, the song from the `.sng` the game opens (*18 And Life* from Learn & Play's dlc folder: a Windows archive, PC key), the play record locking the timer (not a decoy, not a stale record), and the first tone change on time. Skipped without Learn & Play |
+| `tests/run_lp_test.sh` | the dylib (arm64) inside `tests/standin_lp.c`, a stand-in for RS Re-ARMed Learn & Play (its mod interface and 4 GB guest window): loaded only for its `rc_mod_abi`, the song from the `.sng` the game opens (*18 And Life* from Learn & Play's dlc folder: a Windows archive, PC key), the play record locking the timer (not a decoy, not a stale record), the first tone change on time, and with the stream overlays on, the note statistics and Score Attack objects in `stats` events; then a song without tone changes whose timer copy is freed: the play record locks the new copy. Skipped without Learn & Play |
 | `tests/run_events_test.sh` | `rscore.c`'s events from `tests/events_harness.c`, for an ordinary song and one with 16 arrangements and every name as long as allowed: valid JSON, only whole parts (as many as fit), the log saying how many |
 | `tests/run_ai_app_test.sh` | `AIClassifier.swift` and `Presets.swift` against `tests/stub_responses.py` (a stand-in for OpenAI): the request (key, model, the script's prompt, strict schema), the saved answer, the song's remap and style, rejecting and using again, a wrong key |
 | `tests/run_classify_test.sh` | `classify_songs.py` with `tests/stub_openai` for the `openai` package, on songs from your index: batches, suggestions, low-confidence answers left out, `presets.py` using them after your own entries |

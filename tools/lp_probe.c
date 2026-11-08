@@ -387,6 +387,55 @@ static int song_arrangements(const char *key, song_ref *s) {
     return s->narr;
 }
 
+// Statistics mode (built with -DLP_PROBE_STATS, tools/lp_probe.sh install stats): every second from
+// Play_<key> on, the objects with 111000 at +8 and an image pointer at +0, and which of their first
+// 0x200 bytes changed (int32, decimal; pointers in hex), to map their fields against the screen.
+#define TRACK_BYTES 0x200
+static void stats_track(uint8_t *buf, const song_ref *s, double seconds) {
+    typedef struct { uint32_t obj, vt; int32_t last[TRACK_BYTES / 4]; } tracked;
+    static tracked tr[8];
+    int ntr = 0, ever = 0;
+    double gone_since = 0;
+    static stats_search ss;
+    for (int tick = 0; now_s() < s->played_at + seconds; tick++) {
+        while (now_s() < s->played_at + 2 + tick) usleep(20000);
+        double at = now_s() - s->played_at;
+        ss.n = 0;
+        scan(buf, find_stats, &ss);
+        for (int i = 0; i < ss.n && ntr < 8; i++) {
+            int k = 0;
+            while (k < ntr && tr[k].obj != ss.obj[i]) k++;
+            if (k < ntr) continue;
+            tr[ntr].obj = ss.obj[i], tr[ntr].vt = ss.vt[i];
+            memset(tr[ntr].last, 0, sizeof tr[ntr].last);
+            logf_("stats %5.1f s: new object %08x, type %08x", at, ss.obj[i], ss.vt[i]);
+            ntr++, ever = 1;
+        }
+        for (int k = 0; k < ntr; k++) {
+            int32_t now[TRACK_BYTES / 4];
+            if (!rd(tr[k].obj, now, sizeof now) || (uint32_t)now[0] != tr[k].vt || now[2] != 111000) {
+                logf_("stats %5.1f s: object %08x gone", at, tr[k].obj);
+                tr[k--] = tr[--ntr];
+                continue;
+            }
+            char line[2048];
+            size_t len = 0;
+            for (int w = 3; w < TRACK_BYTES / 4 && len < sizeof line - 32; w++) {
+                if (now[w] == tr[k].last[w]) continue;
+                int32_t v = now[w];
+                len += (size_t)snprintf(line + len, sizeof line - len, v > -10000000 && v < 10000000 ? " +%x=%d" : " +%x=%08x",
+                                        w * 4, v);
+            }
+            if (len) logf_("stats %5.1f s: %08x:%s", at, tr[k].obj, line);
+            memcpy(tr[k].last, now, sizeof now);
+        }
+        if (ntr) gone_since = 0;
+        else if (ever && !gone_since) gone_since = now_s();
+        if (gone_since && now_s() - gone_since > 10) break;
+    }
+    logf_("stats: tracking done");
+}
+
 static void run_all(const song_ref *s, int round) {
     static uint8_t *buf;
     if (!buf) buf = mmap(NULL, CHUNK, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
@@ -425,10 +474,16 @@ static void *prober(void *arg) {
 #ifndef LP_PROBE_TEST
         g_base = rc_slide;
 #endif
+#ifdef LP_PROBE_STATS
+        static uint8_t *buf;
+        if (!buf) buf = mmap(NULL, CHUNK, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+        stats_track(buf, &s, 240);
+#else
         while (now_s() < s.played_at + 8) usleep(100000);
         run_all(&s, 1);
         while (now_s() < s.played_at + 25) usleep(100000);
         run_all(&s, 2);
+#endif
     }
     return NULL;
 }
@@ -513,6 +568,7 @@ static void *ticker(void *arg) {
         int32_t ms = (int32_t)(t * 1000);
         memcpy(G(0x6800000 + 0x18), &pos, 4);        // play record: after the 24-byte string
         memcpy(G(0x6800000 + 0x1c), &ms, 4);
+        put32(0x6900040, (uint32_t)(t * 10));  // note stats: a counter going up
         usleep(10000);
     }
     return arg;
@@ -550,6 +606,8 @@ int main(int argc, char **argv) {
     snprintf(s.arr[2], 128, "testkey_bass_alternate");
     usleep(200000);
     run_all(&s, 1);
+    s.played_at = now_s() - 2;
+    stats_track(mmap(NULL, CHUNK, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0), &s, 5);
     g_stop = 1;
     pthread_join(t, NULL);
     return 0;

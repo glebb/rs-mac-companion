@@ -17,13 +17,14 @@ which a reinstall keeps. The values below are the
 original game's, which RS Re-ARMed keeps; the dylib log says `RS Re-ARMed: game image slide …` once
 the game has loaded its image.
 
-**RS Re-ARMed Learn & Play** (the Windows game): the dylib has no addresses of that game. It relies on
+**RS Re-ARMed Learn & Play** (the Windows game): the dylib has no addresses of that game for songs, tones and the timer. It relies on
 RS Re-ARMed's hook points `frontend_open_file` and `ak_post_event_name` (by name, so they follow the
 game) and on the Windows `.sng` key in `rsfile.c`. The log says `RS Re-ARMed Learn & Play: guest
 memory at …`, then per song `song <key> loaded by the game from …`, `selected arrangement …` and
 `play record (Learn & Play): position float at …`; a missing hook point says so at startup. If
 Learn & Play logs `mod not loaded: librscompanion.dylib: built for the Mac alone`, the library lost
-its `rc_mod_abi`. To see what the game does, put the probe in its mods folder for one song:
+its `rc_mod_abi`. The note statistics (stream overlays) are the one part with addresses of that game
+(below). To see what the game does, put the probe in its mods folder for one song:
 `tools/lp_probe.sh install`, play, `tools/lp_probe.sh remove`; it logs to `lp_probe.log` in the data
 folder ([game-memory.md § 14](game-memory.md#14-rs-re-armed-learn--play-the-windows-game)).
 
@@ -111,8 +112,9 @@ If the selected arrangement no longer appears twice, `current_arrangement()` in 
 needs another way to tell which one is selected.
 
 The `note_stats_*` and `score_attack_*` values are used by the dylib's stream overlays
-(`NOTE_STATS_VTABLE`, `SCORE_ATTACK_VTABLE` and the offsets in `emit_stats()` in
-`rscompanion.c`; log line `note statistics at …` when found). To re-derive them, play a song and
+(`NOTE_STATS_VTABLE`, `SCORE_ATTACK_VTABLE` and the offsets in `MAC_STATS` in
+`rscompanion.c`; Learn & Play's are `LP_NOTE_STATS_VTABLE`, `LP_SCORE_ATTACK_VTABLE` and `LP_STATS`, found
+with `tools/lp_probe.sh install stats`; log line `note statistics at …` when found). To re-derive them, play a song and
 look for the int32 111000 (`probe.py findhex 98b10100`): the type pointer is the 8-byte word 0xC
 before it ([game-memory.md § 8](game-memory.md#8-note-statistics)).
 

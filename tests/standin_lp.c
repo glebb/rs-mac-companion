@@ -8,7 +8,9 @@
 //   - posts the Wwise event Play_<KEY>,
 //   - keeps a song timer (a double from 3 s, ticking) and decoy clocks in the guest heap, and a play
 //     record: the name "Play_<KEY>" as a 4-byte pointer, with the position (float seconds) 0x18
-//     bytes after it; a stale record of the same song whose position doesn't move.
+//     bytes after it; a stale record of the same song whose position doesn't move;
+//   - the note statistics and Score Attack objects (type pointers 0x01d21048 / 0x01d21208, 111000
+//     at +8, RockSniffer's Windows layout), hits and score going up; a freed copy without its type.
 // Runs SECONDS seconds. With a 5th argument "moves", the timer's copy is freed (reads as -1) 8 s
 // after the event and the timer goes on in another copy, as seen in Learn & Play.
 #include <dlfcn.h>
@@ -103,8 +105,22 @@ int main(int argc, char **argv) {
     memcpy(G(stale), &(uint32_t){heap + 0x2000}, 4);
     memcpy(G(stale + 0x18), &(float){12.5f}, 4);
     memcpy(G(live), &(uint32_t){heap + 0x2000}, 4);
+    const uint32_t note = heap + 0x600000, sa = heap + 0x610000, freed = heap + 0x620000;
+    memcpy(G(note), &(uint32_t){0x01d21048}, 4);
+    memcpy(G(sa), &(uint32_t){0x01d21208}, 4);
+    for (uint32_t o = note; o <= freed; o += 0x10000) memcpy(G(o + 8), &(int32_t){111000}, 4);
+    memcpy(G(sa + 0x48), &(int32_t){4}, 4);        // best miss streak
+    memcpy(G(sa + 0xe8), &(int32_t){10}, 4);       // multiplier
+    memcpy(G(sa + 0xec), &(int32_t){11}, 4);       // best multiplier
+    memcpy(G(sa + 0x84), &(int32_t){3}, 4);        // perfect phrases
     double t0 = now_s();
     while (now_s() - t0 < seconds) {
+        int32_t hits = (int32_t)((now_s() - t0) * 3);
+        memcpy(G(note + 0x30), &hits, 4);           // hits
+        memcpy(G(note + 0x34), &hits, 4);           // streak
+        memcpy(G(note + 0x3c), &hits, 4);           // best streak
+        memcpy(G(note + 0x40), &(int32_t){2}, 4);   // misses
+        memcpy(G(sa + 0xe4), &(int32_t){hits * 100}, 4);  // score
         double t = 3 + now_s() - t0;   // the song timer: ahead of the event, as the game's is
         double decoy = t + 0.42;         // a clock started when the song was picked
         double menu = now_s() - t0 + 50; // a clock of the whole session

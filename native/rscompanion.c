@@ -66,6 +66,10 @@
 #define NOTE_STATS_VTABLE 0x1017F92C0ULL
 #define NOTE_STATS_MARKER 0xC           // int32 111000
 #define SCORE_ATTACK_VTABLE 0x10180A388ULL
+// The same objects in Learn & Play (game-memory.md section 14): guest type pointers (4 bytes, as
+// stored), the marker at +0x8 and RockSniffer's Windows layout.
+#define LP_NOTE_STATS_VTABLE 0x01D21048u
+#define LP_SCORE_ATTACK_VTABLE 0x01D21208u
 
 // ================================================================ RS Re-ARMed's mod interface
 //
@@ -1637,17 +1641,30 @@ static void *tracker(void *arg) {
 // with the int32 111000 at +0xC. They are found by type pointer (freed copies keep the marker
 // but lose the type pointer), looked for every 2 s while an arrangement is selected, and read
 // 4 times a second until their type pointer goes.
+// Where the fields are: the Mac image's layout, or Learn & Play's (4-byte type pointer, Windows offsets).
+typedef struct {
+    int ptr;                        // bytes of the type pointer at +0
+    int marker;                     // the int32 111000
+    int note;                       // note stats: hits, streak, ?, best streak, misses, miss streak (int32 each)
+    int best_miss, perfect, late;   // Score Attack: best miss streak; perfect streak + hits; late streak + hits
+    int phrases, phrase_streaks, best_phrase_streaks, score;  // score: then current and best multiplier
+} stats_layout;
+static const stats_layout MAC_STATS = {8, 0xC, 0x40, 0x64, 0x90, 0x98, 0xA0, 0xB0, 0xC0, 0x118};
+static const stats_layout LP_STATS = {4, 0x8, 0x30, 0x48, 0x74, 0x7C, 0x84, 0x94, 0xA4, 0xE4};
+static const stats_layout *g_stats = &MAC_STATS;
+
 typedef struct { uint64_t want[2]; uint64_t hits[2][64]; int n[2]; } stats_search;
 
 static int find_stats(uint64_t base, const uint8_t *d, size_t len, void *ctx) {
     stats_search *ss = ctx;
-    for (size_t i = 0; i + 16 <= len; i += 8) {
-        uint64_t v;
-        memcpy(&v, d + i, 8);
+    const stats_layout *L = g_stats;
+    for (size_t i = 0; i + (size_t)L->marker + 4 <= len; i += (size_t)L->ptr) {
+        uint64_t v = 0;
+        memcpy(&v, d + i, (size_t)L->ptr);
         for (int k = 0; k < 2; k++)
             if (v == ss->want[k] && ss->n[k] < 64) {
                 int32_t mark;
-                memcpy(&mark, d + i + NOTE_STATS_MARKER, 4);
+                memcpy(&mark, d + i + L->marker, 4);
                 if (mark == 111000) ss->hits[k][ss->n[k]++] = base + i;
             }
     }
@@ -1656,12 +1673,13 @@ static int find_stats(uint64_t base, const uint8_t *d, size_t len, void *ctx) {
 
 // Whether the object at a is still alive (its type pointer and marker in place).
 static int stats_alive(uint64_t a, uint64_t vtable) {
-    uint8_t h[NOTE_STATS_MARKER + 4];
-    if (!a || !safe_read(a, h, sizeof h)) return 0;
-    uint64_t v;
+    const stats_layout *L = g_stats;
+    uint8_t h[0x10];
+    if (!a || !safe_read(a, h, (size_t)L->marker + 4)) return 0;
+    uint64_t v = 0;
     int32_t mark;
-    memcpy(&v, h, 8);
-    memcpy(&mark, h + NOTE_STATS_MARKER, 4);
+    memcpy(&v, h, (size_t)L->ptr);
+    memcpy(&mark, h + L->marker, 4);
     return v == vtable && mark == 111000;
 }
 
@@ -1675,8 +1693,9 @@ static void add_ints(char *ev, size_t size, const char *name, const int32_t *v, 
 
 // The stats event for the objects at note and sa (0 if not in Score Attack); 0 if unreadable.
 static int emit_stats(uint64_t note, uint64_t sa) {
+    const stats_layout *L = g_stats;
     int32_t n[8], q[0x128 / 4];
-    if (!safe_read(note + 0x40, n, sizeof n)) return 0;
+    if (!safe_read(note + L->note, n, sizeof n)) return 0;
     if (sa && !safe_read(sa, q, sizeof q)) sa = 0;
     char ev[1024];
     snprintf(ev, sizeof ev,
@@ -1698,12 +1717,12 @@ static int emit_stats(uint64_t note, uint64_t sa) {
         snprintf(x, sizeof x,
                  ", \"best_miss_streak\": %d, \"perfect_streak\": %d, \"perfect_hits\": %d, \"late_streak\": %d, "
                  "\"late_hits\": %d, \"score\": %d, \"multiplier\": %d, \"best_multiplier\": %d",
-                 q[0x64 / 4], q[0x90 / 4], q[0x94 / 4], q[0x98 / 4], q[0x9C / 4], q[0x118 / 4], q[0x11C / 4],
-                 q[0x120 / 4]);
+                 q[L->best_miss / 4], q[L->perfect / 4], q[L->perfect / 4 + 1], q[L->late / 4], q[L->late / 4 + 1],
+                 q[L->score / 4], q[L->score / 4 + 1], q[L->score / 4 + 2]);
         strlcat(ev, x, sizeof ev);
-        add_ints(ev, sizeof ev, "phrases", &q[0xA0 / 4], 4);
-        add_ints(ev, sizeof ev, "phrase_streaks", &q[0xB0 / 4], 4);
-        add_ints(ev, sizeof ev, "best_phrase_streaks", &q[0xC0 / 4], 4);
+        add_ints(ev, sizeof ev, "phrases", &q[L->phrases / 4], 4);
+        add_ints(ev, sizeof ev, "phrase_streaks", &q[L->phrase_streaks / 4], 4);
+        add_ints(ev, sizeof ev, "best_phrase_streaks", &q[L->best_phrase_streaks / 4], 4);
     }
     strlcat(ev, "}", sizeof ev);
     send_event(ev, 0);
@@ -1713,14 +1732,12 @@ static int emit_stats(uint64_t note, uint64_t sa) {
 static void *stats_watch(void *arg) {
     (void)arg;
     wait_for_image();
-    if (g_lp) {  // its objects there are not known yet (docs/game-memory.md)
-        logline("note statistics: not on Learn & Play yet");
-        return NULL;
-    }
+    if (g_lp) g_stats = &LP_STATS;
     cpu_register(CPU_STATS);
     uint8_t *buf = own_alloc(CHUNK);
     stats_search *ss = own_alloc(sizeof *ss);
     uint64_t vt[2] = {NOTE_STATS_VTABLE + g_slide, SCORE_ATTACK_VTABLE + g_slide};
+    if (g_lp) vt[0] = LP_NOTE_STATS_VTABLE, vt[1] = LP_SCORE_ATTACK_VTABLE;  // guest addresses, as stored
     uint64_t note = 0, sa = 0;
     double last_scan = 0;
     unsigned tries = 0;
