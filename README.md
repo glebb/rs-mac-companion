@@ -19,7 +19,8 @@ a JSON file: one comes with the app for the Line 6 HX Stomp, and one for
 JBL BandBox. A new device or tool should need no changes in RS Companion.
 
 It reads the game's memory (read-only, data only) and its song files. It never touches the game's
-code; it only adds one library load to the game executable (like the usual custom-song patch).
+code; it only adds one library load to the game executable (like the usual custom-song patch), or,
+in RS Re-ARMed, puts one library in its mods folder.
 
 ## What do you need?
 
@@ -36,7 +37,7 @@ The two ways to run detect the same things the same way; the difference is where
 | Runs | a small library inside the game, plus the menu-bar app | `rstone.py` + `rsprobe`, outside the game |
 | Output | MIDI Program Change, optionally song tone messages (SysEx) and stream overlays, and a window | JSON lines, UDP, live web window |
 | Song data | read live from the song the game loads | an index of all songs, built at start |
-| Changes the game | adds one library load (with a backup; uninstallable) | no |
+| Changes the game | adds one library load (with a backup; uninstallable); in RS Re-ARMed, no: a library in its mods folder | no |
 | Needs at run time | nothing else | Python 3, Developer Mode |
 
 Both need Rocksmith 2014 Remastered from Steam on macOS (it runs under Rosetta on Apple Silicon).
@@ -44,14 +45,14 @@ RS Companion also works with [RS Re-ARMed](https://github.com/bbelgg/rs-rearmed)
 Apple Silicon port: when it's installed, RS Companion installs into it instead, as a library in its
 mods folder, which doesn't change the game and survives a reinstall of RS Re-ARMed (another game
 folder can be set in Settings). RS Re-ARMed **Learn & Play** (the Windows game, which RS Re-ARMed
-also runs) works too: the same library goes into its mods folder, alongside the Mac edition's when
-both are installed.
+also runs) works too, stream overlays included: the same library goes into its mods folder,
+alongside the Mac edition's when both are installed (Learn & Play needs RS Re-ARMed 1.5.0 or later).
 
 ## RS Companion (the in-game version)
 
 ### What you need
 
-- Rocksmith 2014 Remastered (Steam, macOS)
+- Rocksmith 2014 Remastered (Steam, macOS), or RS Re-ARMed (its Mac edition or Learn & Play)
 - macOS 14 (Sonoma) or later, Apple Silicon or Intel (tested on Apple Silicon)
 
 ### Install
@@ -67,7 +68,7 @@ both are installed.
    backup of the game executable as `Rocksmith2014.orig`; for RS Re-ARMed it only puts the library
    in RS Re-ARMed's `mods` folder
    ([what exactly it does](docs/how-it-works.md#installing-into-the-game)).
-4. Start Rocksmith from Steam as usual.
+4. Start Rocksmith as usual (from Steam, or RS Re-ARMed).
 
 RS Companion finds the game in your Steam libraries, including ones on other drives (connect the
 drive first). If it can't, choose the `Rocksmith2014` folder or `Rocksmith2014.app` under
@@ -496,7 +497,7 @@ None beyond macOS: the in-game library, the app and `rstool` use only system lib
 - MIDI is one-way: switching presets on the receiving side isn't seen by the app, and it doesn't
   know whether a receiver acted on a song tone message.
 - RS Companion has to be installed into the game again after Steam replaces the game executable
-  (the app tells you).
+  (the app tells you); in RS Re-ARMed it stays in the mods folder.
 - RockNRoller has to be opened from RS Companion; with several panels, the first one's part is
   followed.
 - AI song classification is only as good as the model's knowledge: it can be wrong, mostly on

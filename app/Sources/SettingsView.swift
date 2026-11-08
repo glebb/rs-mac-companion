@@ -103,8 +103,10 @@ struct SettingsView: View {
                     Text(message).font(.caption).foregroundStyle(.secondary)
                 }
                 Text(companion.installer.usesModsFolder
-                     ? "Installing puts one library in RS Re-ARMed's mods folder (Learn & Play's too, when it's "
-                       + "installed; Rocksmith must not be running); "
+                     ? (companion.installer.isLearnPlay
+                        ? "Installing puts one library in RS Re-ARMed Learn & Play's mods folder (Rocksmith must not be running); "
+                        : "Installing puts one library in RS Re-ARMed's mods folder (Learn & Play's too, when it's "
+                          + "installed; Rocksmith must not be running); ")
                        + "the game itself isn't changed, and a reinstall of RS Re-ARMed keeps it. Uninstalling removes it."
                      : "Installing adds one library to the game (Rocksmith must not be running); a backup of the "
                        + "game is kept. Uninstalling removes only the companion. After a Steam update, install again.")
@@ -207,7 +209,7 @@ struct SettingsView: View {
 
     private func chooseGameDir() {
         let panel = NSOpenPanel()
-        panel.message = "Choose the Rocksmith2014 folder or Rocksmith2014.app."
+        panel.message = "Choose the Rocksmith2014 folder or Rocksmith2014.app (Learn & Play: the folder with Rocksmith2014.exe)."
         panel.canChooseDirectories = true
         panel.canChooseFiles = true  // so Rocksmith2014.app can be picked
         panel.directoryURL = URL(fileURLWithPath: companion.installer.gameDir)

@@ -248,7 +248,7 @@ final class Companion: ObservableObject {
 
     /// The folder picked in Settings isn't the game.
     func notGame(_ name: String) {
-        installMessage = "\(name) isn't Rocksmith: choose the Rocksmith2014 folder or Rocksmith2014.app."
+        installMessage = "\(name) isn't Rocksmith: choose the Rocksmith2014 folder or Rocksmith2014.app (Learn & Play: the folder with Rocksmith2014.exe)."
     }
 
     func setGameDir(_ dir: String?) {
