@@ -1,8 +1,9 @@
 # HX Stomp presets for RS Companion
 
 Three presets for `profiles/hx-stomp.json`: Soft (01A), Classic Rock (01B), Metal (01C). They were
-built for firmware 3.80 and HX Edit 3.82. **None of this has been on a real Stomp yet, and nothing
-here has been heard.** The settings are starting points from Line 6's own data and forum reports.
+built for firmware 3.80 and HX Edit 3.82. The settings are starting points from Line 6's own data and
+forum reports. They have since been played on a real Stomp through RS Companion and sounded right; see
+[Not verified](#not-verified) for what that listening test didn't check.
 
 ## Import
 
