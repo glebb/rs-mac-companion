@@ -1,4 +1,4 @@
-// rsfile: read Rocksmith 2014 (Mac) song files: .psarc archives, the tone timeline in .sng
+// rsfile: read Rocksmith 2014 song files (Mac, and Windows for Learn & Play): .psarc archives, the tone timeline in .sng
 // arrangements, and fields of the JSON manifests. Uses only macOS system libraries
 // (CommonCrypto, zlib). Formats: docs/song-files.md and rsfile.c.
 #ifndef RSFILE_H
@@ -45,11 +45,11 @@ const rs_entry *rs_psarc_find(const rs_psarc *p, const char *path);
 // JSON), or NULL. *len gets the entry's length.
 uint8_t *rs_psarc_read(rs_psarc *p, const rs_entry *e, size_t *len);
 
-// Decrypt and unpack a Mac .sng: the plain SNG (malloc'ed; free it), its length in *plain_len,
+// Decrypt and unpack a .sng (Mac or Windows key): the plain SNG (malloc'ed; free it), its length in *plain_len,
 // or NULL if the data isn't a valid SNG. Its arrays: docs/song-files.md.
 uint8_t *rs_sng_plain(const uint8_t *sng, size_t len, size_t *plain_len);
 
-// Decrypt and unpack a Mac .sng and return its tone changes in *out (malloc'ed; free it).
+// Decrypt and unpack a .sng and return its tone changes in *out (malloc'ed; free it).
 // Returns the number of changes, or -1 if the data isn't a valid SNG.
 int rs_sng_tones(const uint8_t *sng, size_t len, rs_tone_change **out);
 

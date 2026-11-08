@@ -3,12 +3,19 @@ import Foundation
 
 /// Installs the companion into Rocksmith: adds a load command for librscompanion.dylib to the
 /// game executable and puts the dylib (bundled in this app) next to it; for RS Re-ARMed, copies the
-/// dylib into its mods folder instead. Also updates it, removes it, and tells which state the game
-/// is in.
+/// dylib into its mods folder instead (both editions': the Mac one and Learn & Play, the Windows game).
+/// Also updates it, removes it, and tells which state the game is in.
 struct GameInstaller {
     static let defaultGameDir = NSHomeDirectory() + "/Library/Application Support/Steam/steamapps/common/Rocksmith2014"
     /// RS Re-ARMed (the native arm64 port) runs the game from a mirror of the Steam folder here.
     static let reArmedGameDir = NSHomeDirectory() + "/Library/Application Support/RS Re-ARMed/game"
+    /// RS Re-ARMed Learn & Play: the Windows game (Rocksmith2014.exe), its mods folder next to this one.
+    /// RS_LEARN_PLAY_DIR (the tests) puts it elsewhere.
+    static var learnPlayGameDir: String {
+        ProcessInfo.processInfo.environment["RS_LEARN_PLAY_DIR"]
+            ?? NSHomeDirectory() + "/Library/Application Support/RS Re-ARMed/learn-play/game"
+    }
+    static let learnPlayExecutable = "rs2014_lp"
     static let steamAppID = "221680"
     static let dylibName = "librscompanion.dylib"
     static let loadPath = "@executable_path/" + dylibName
@@ -60,7 +67,12 @@ struct GameInstaller {
     }
 
     static func isGameDir(_ dir: String) -> Bool {
-        FileManager.default.fileExists(atPath: dir + "/Rocksmith2014.app/Contents/MacOS/Rocksmith2014")
+        FileManager.default.fileExists(atPath: dir + "/Rocksmith2014.app/Contents/MacOS/Rocksmith2014") || isLearnPlayDir(dir)
+    }
+
+    /// A Learn & Play game folder: the Windows game, which RS Re-ARMed Learn & Play runs.
+    static func isLearnPlayDir(_ dir: String) -> Bool {
+        FileManager.default.fileExists(atPath: dir + "/Rocksmith2014.exe")
     }
 
     /// The game folder for a path the user picked: the folder itself, Rocksmith2014.app or
@@ -68,6 +80,7 @@ struct GameInstaller {
     static func gameDir(for path: String) -> String? {
         var dir = path
         if let range = dir.range(of: "/Rocksmith2014.app") { dir = String(dir[..<range.lowerBound]) }
+        if dir.hasSuffix("/Rocksmith2014.exe") { dir = (dir as NSString).deletingLastPathComponent }
         return isGameDir(dir) ? dir : nil
     }
 
@@ -87,8 +100,10 @@ struct GameInstaller {
             let names = (manifest.map { vdfValues("installdir", in: $0) } ?? []) + ["Rocksmith2014"]
             if let dir = names.map({ library + "/steamapps/common/" + $0 }).first(where: isGameDir) { return dir }
         }
-        return ["/Applications/Rocksmith2014", "/Applications/Rocksmith 2014", NSHomeDirectory() + "/Applications/Rocksmith2014"]
+        let mac = ["/Applications/Rocksmith2014", "/Applications/Rocksmith 2014", NSHomeDirectory() + "/Applications/Rocksmith2014"]
             .first(where: isGameDir)
+        // Learn & Play alone (no Mac game): the companion goes into its mods folder
+        return mac ?? (env["RS_STEAM_DIR"] == nil && isLearnPlayDir(learnPlayGameDir) ? learnPlayGameDir : nil)
     }
 
     /// The values of every  "key"  "value"  line in a Steam .vdf/.acf file, unescaped.
@@ -114,17 +129,28 @@ struct GameInstaller {
     var backup: String { isArm64 ? gameDir + "/Rocksmith2014.orig" : executable + ".orig" }
 
     /// RS Re-ARMed loads every library in its mods folder at startup, and keeps the folder when it's
-    /// reinstalled: the companion goes there instead of into its executable. (Learn & Play skips the
-    /// library: it's built for the Mac game's addresses, without rc_mod.h.)
-    var usesModsFolder: Bool { isArm64 }
+    /// reinstalled: the companion goes there instead of into its executable. Learn & Play loads only a
+    /// library that defines rc_mod_abi, which the companion does.
+    var usesModsFolder: Bool { isLearnPlay || isArm64 }
+
+    /// This is Learn & Play's game folder (the Windows game; there is no executable to patch).
+    var isLearnPlay: Bool { !FileManager.default.fileExists(atPath: executable) && Self.isLearnPlayDir(gameDir) }
+
+    /// Learn & Play, when this is RS Re-ARMed's Mac edition and Learn & Play is installed too: it gets
+    /// the same library, installed, updated and removed with this one.
+    var learnPlay: GameInstaller? {
+        guard !isLearnPlay, isArm64, Self.isLearnPlayDir(Self.learnPlayGameDir) else { return nil }
+        return GameInstaller(gameDir: Self.learnPlayGameDir, bundledDylib: bundledDylib)
+    }
+
+    private var modsFolderName: String { isLearnPlay ? "RS Re-ARMed Learn & Play's mods folder" : "RS Re-ARMed's mods folder" }
 
     /// RS Re-ARMed's mods folder, next to its game folder. The game folder may be a link to another
     /// drive; the mods folder stays in Application Support.
     var modsDir: String {
         let resolved = { (p: String) in URL(fileURLWithPath: p).resolvingSymlinksInPath().path }
-        let home = resolved(gameDir) == resolved(Self.reArmedGameDir)
-            ? (Self.reArmedGameDir as NSString).deletingLastPathComponent
-            : (gameDir as NSString).deletingLastPathComponent
+        let canonical = [Self.reArmedGameDir, Self.learnPlayGameDir].first { resolved(gameDir) == resolved($0) }
+        let home = ((canonical ?? gameDir) as NSString).deletingLastPathComponent
         return home + "/mods"
     }
 
@@ -144,6 +170,9 @@ struct GameInstaller {
     /// This game folder's Rocksmith is running. (Files are replaced by renaming, so even a game
     /// running from here would keep its loaded copies; the check is for a clear message.)
     var gameRunning: Bool {
+        if isLearnPlay {
+            return NSWorkspace.shared.runningApplications.contains { $0.executableURL?.lastPathComponent == Self.learnPlayExecutable }
+        }
         let target = URL(fileURLWithPath: executable).resolvingSymlinksInPath().path
         return NSWorkspace.shared.runningApplications.contains {
             $0.executableURL?.resolvingSymlinksInPath().path == target
@@ -151,6 +180,20 @@ struct GameInstaller {
     }
 
     func status() -> Status {
+        if isLearnPlay { return modsFolderStatus() }
+        let own = executableStatus()
+        // With Learn & Play installed too, an install that left it out is completed by an update.
+        if own == .installed, let other = learnPlay?.status(), other != .installed { return .updateAvailable }
+        return own
+    }
+
+    private func modsFolderStatus() -> Status {
+        guard let installed = FileManager.default.contents(atPath: installedDylib) else { return .notInstalled }
+        if let bundled = bundledDylib, let data = try? Data(contentsOf: bundled), data != installed { return .updateAvailable }
+        return .installed
+    }
+
+    private func executableStatus() -> Status {
         guard FileManager.default.fileExists(atPath: executable) else { return .gameNotFound }
         let patcher: MachOPatcher
         do {
@@ -162,9 +205,7 @@ struct GameInstaller {
         if usesModsFolder {
             // A load command is an install from before the mods folder: Update moves it there.
             if !ours.isEmpty { return .updateAvailable }
-            guard let installed = FileManager.default.contents(atPath: installedDylib) else { return .notInstalled }
-            if let bundled = bundledDylib, let data = try? Data(contentsOf: bundled), data != installed { return .updateAvailable }
-            return .installed
+            return modsFolderStatus()
         }
         if ours.isEmpty { return .notInstalled }
         if ours != [Self.loadPath] { return .updateAvailable }
@@ -175,17 +216,19 @@ struct GameInstaller {
 
     /// Installs or updates. Returns what was done, for the log.
     func install() throws -> String {
-        guard FileManager.default.fileExists(atPath: executable) else { throw Failure.gameNotFound(gameDir) }
-        guard !gameRunning else { throw Failure.gameRunning }
+        guard FileManager.default.fileExists(atPath: executable) || isLearnPlay else { throw Failure.gameNotFound(gameDir) }
+        let other = learnPlay
+        guard !gameRunning, !(other?.gameRunning ?? false) else { throw Failure.gameRunning }
         guard let bundled = bundledDylib, FileManager.default.fileExists(atPath: bundled.path) else {
             throw Failure.noBundledLibrary
         }
         if usesModsFolder {
-            var done = try removePatch()
+            var done = isLearnPlay ? [] : try removePatch()
             try FileManager.default.createDirectory(atPath: modsDir, withIntermediateDirectories: true)
             try replace(installedDylib, with: Data(contentsOf: bundled), mode: 0o755)
             removexattr(installedDylib, "com.apple.quarantine", 0)
-            done.append("copied \(Self.dylibName) to RS Re-ARMed's mods folder")
+            done.append("copied \(Self.dylibName) to \(modsFolderName)")
+            if let other { done.append(try other.install()) }
             return done.joined(separator: "; ")
         }
         var done: [String] = []
@@ -227,12 +270,17 @@ struct GameInstaller {
     /// Removes the companion: its load command(s) (the rest of the executable stays as it is,
     /// custom-song patch included) and the library. The backup is kept.
     func uninstall() throws -> String {
-        guard FileManager.default.fileExists(atPath: executable) else { throw Failure.gameNotFound(gameDir) }
-        guard !gameRunning else { throw Failure.gameRunning }
-        var done = try removePatch()
+        guard FileManager.default.fileExists(atPath: executable) || isLearnPlay else { throw Failure.gameNotFound(gameDir) }
+        let other = learnPlay
+        guard !gameRunning, !(other?.gameRunning ?? false) else { throw Failure.gameRunning }
+        var done = isLearnPlay ? [] : try removePatch()
         if usesModsFolder, FileManager.default.fileExists(atPath: installedDylib) {
             try FileManager.default.removeItem(atPath: installedDylib)
-            done.append("deleted \(Self.dylibName) from RS Re-ARMed's mods folder")
+            done.append("deleted \(Self.dylibName) from \(modsFolderName)")
+        }
+        if let other {
+            let text = try other.uninstall()
+            if text != "nothing to remove" { done.append(text) }
         }
         return done.isEmpty ? "nothing to remove" : done.joined(separator: "; ")
     }

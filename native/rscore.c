@@ -107,12 +107,16 @@ song *load_song(rs_psarc *p, const char *key) {
     song *s = calloc(1, sizeof *s);
     if (!s) return NULL;
     snprintf(s->key, sizeof s->key, "%s", key);
-    char prefix[300];
-    snprintf(prefix, sizeof prefix, "songs/bin/macos/%s_", key);
+    // Mac archives keep arrangements in songs/bin/macos/, Windows ones (Learn & Play) in songs/bin/generic/
+    char prefix[2][300];
+    snprintf(prefix[0], sizeof prefix[0], "songs/bin/macos/%s_", key);
+    snprintf(prefix[1], sizeof prefix[1], "songs/bin/generic/%s_", key);
     static const char *slot_keys[5] = {"Tone_Base", "Tone_A", "Tone_B", "Tone_C", "Tone_D"};
     for (uint32_t i = 0; i < p->n && s->narr < MAX_ARRS; i++) {
         const char *path = p->e[i].path;
-        if (strncmp(path, prefix, strlen(prefix)) || !ends_with(path, ".sng")) continue;
+        if ((strncmp(path, prefix[0], strlen(prefix[0])) && strncmp(path, prefix[1], strlen(prefix[1]))) ||
+            !ends_with(path, ".sng"))
+            continue;
         arrangement *a = &s->arr[s->narr++];
         const char *base = strrchr(path, '/') + 1;
         snprintf(a->name, sizeof a->name, "%.*s", (int)(strlen(base) - 4), base);

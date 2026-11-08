@@ -225,8 +225,35 @@ original x86_64 image's, recompiled; it calls libc through that image's own impo
 Re-ARMed fills with `dlsym` when the game starts (just after it sets `rc_slide`) and reads at every
 call. So there the library waits for the image and points the slots that hold `open`, `read`,
 `fopen`, `fread`, `close`, `fclose` at its replacements (the log says how many).
-If an old install and the mods folder both load it, the second copy does nothing. RS Re-ARMed Learn &
-Play skips the library: it's built for the Mac game's addresses, without `rc_mod.h`.
+If an old install and the mods folder both load it, the second copy does nothing.
+
+**RS Re-ARMed Learn & Play** (the Windows game, recompiled by RS Re-ARMed; game folder
+`~/Library/Application Support/RS Re-ARMed/learn-play/game`, mods folder `…/learn-play/mods/`) loads
+only a library that defines `rc_mod_abi` (RS Re-ARMed's `rc_mod.h`): the companion does, and looks up
+the rest of RS Re-ARMed's mod interface (`rc_target`, `rc_hook_add_name`, `rc_slide`) when it starts,
+so the same universal library still loads in the Steam game. With `rc_target()` = `win-x86` it runs
+its Learn & Play mode:
+- *Song and arrangement*: the game's file calls are Win32 ones, run by RS Re-ARMed's own code, so
+  there is nothing to interpose. Instead the library hooks `frontend_open_file` (the game's
+  `FrontEnd_OpenFile`), which sees `data\songs\bin\generic\<arrangement>.sng` when a song is started:
+  that names the song and the selected arrangement at once, so the arrangement-object scan isn't
+  needed. The archive is the one in `dlc/` (or the game folder) whose table of contents has that
+  entry; Windows `.sng` files use the PC key (`rsfile.c` tries the Mac key, then the PC one).
+- *Memory*: the game's memory is the 4 GB guest window at `rc_slide`, and every scan covers only
+  that (about 500 MB in use). Pointers in it are 4 bytes.
+- *Song timer*: the same rate search as on the Mac (the timer is a double there too). The play
+  record's layout isn't the Mac's: near each copy of `Play_<SongKey>` and each 4-byte pointer to one,
+  a float that advances with the song is its position (found 124 bytes after the name), which picks
+  the candidate as on the Mac. Banners are the Mac's text. Details: [game-memory.md § 14](game-memory.md#14-rs-re-armed-learn--play-the-windows-game).
+- `ak_post_event_name` (Wwise `PostEvent`) logs `Play_<SongKey>` and the music's pause and resume.
+- Note statistics (the stream overlays) are off there: the object was found (type `0x01d21048`,
+  111000 at `+0x8`), but its counters don't follow RockSniffer's Windows layout and aren't mapped yet.
+- What was learned about memory tags goes to `rscompanion_tags_lp.txt`.
+
+`tools/lp_probe.c` (built and tested by `tools/lp_probe.sh`, which can also put it in Learn & Play's
+mods folder and take it out) is the probe these were found with: it logs the game's events and
+opened files, then scans the guest window after `Play_<key>` for the arrangement names, the play
+record, the statistics objects and ticking doubles.
 
 **Install / Update** in the Steam game (refused while that game folder's Rocksmith is running):
 1. If the executable has no companion load command yet, copy it to `Rocksmith2014.orig` (the backup
@@ -290,7 +317,8 @@ of the game executable, and on a copy of RS Re-ARMed's app if it's installed. `t
 | `tests/run_app_test.sh` | stand-in → dylib → app → MIDI (`tools/midi_monitor.swift`), with a song override, a live `presets.json` edit, custom MIDI settings and a restart catch-up |
 | `tests/run_song_tones_test.sh` | stand-in → dylib → app with song tone messages on: the SysEx message at song load (style, tones in order of first use with their categories and effects) and Program Change 8 and 9 |
 | `tests/run_profile_test.sh` | the profile format and its rules, then stand-in → dylib → app with a profile sending straight to a test MIDI device: the song load sequence with its wait, the tones' snapshot and effect CCs, nothing on the virtual source |
-| `tests/run_installer_test.sh` | the installer on a copy of the game executable: fresh install, repeat, prototype migration, update, uninstall back to the original bytes, missing game, a damaged executable; with RS Re-ARMed installed, on a copy of its app: install into and uninstall from the mods folder, and moving an install with a load command there |
+| `tests/run_installer_test.sh` | the installer on a copy of the game executable: fresh install, repeat, prototype migration, update, uninstall back to the original bytes, missing game, a damaged executable; Learn & Play alone (a stand-in game folder): its mods folder, update, uninstall; with RS Re-ARMed installed, on a copy of its app: install into and uninstall from the mods folder, moving an install with a load command there, and both mods folders when Learn & Play is installed too |
+| `tests/run_lp_test.sh` | the dylib (arm64) inside `tests/standin_lp.c`, a stand-in for RS Re-ARMed Learn & Play (its mod interface and 4 GB guest window): loaded only for its `rc_mod_abi`, the song from the `.sng` the game opens (*18 And Life* from Learn & Play's dlc folder: a Windows archive, PC key), the play record locking the timer (not a decoy, not a stale record), and the first tone change on time. Skipped without Learn & Play |
 | `tests/run_events_test.sh` | `rscore.c`'s events from `tests/events_harness.c`, for an ordinary song and one with 16 arrangements and every name as long as allowed: valid JSON, only whole parts (as many as fit), the log saying how many |
 | `tests/run_ai_app_test.sh` | `AIClassifier.swift` and `Presets.swift` against `tests/stub_responses.py` (a stand-in for OpenAI): the request (key, model, the script's prompt, strict schema), the saved answer, the song's remap and style, rejecting and using again, a wrong key |
 | `tests/run_classify_test.sh` | `classify_songs.py` with `tests/stub_openai` for the `openai` package, on songs from your index: batches, suggestions, low-confidence answers left out, `presets.py` using them after your own entries |

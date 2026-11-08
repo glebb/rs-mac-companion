@@ -76,6 +76,10 @@ static void tones(rs_psarc *p, const char *archive) {
         int n = 0;
         snprintf(sngpath, sizeof sngpath, "songs/bin/macos/%s.sng", arr);
         const rs_entry *se = rs_psarc_find(p, sngpath);
+        if (!se) {  // a Windows archive
+            snprintf(sngpath, sizeof sngpath, "songs/bin/generic/%s.sng", arr);
+            se = rs_psarc_find(p, sngpath);
+        }
         if (se) {
             size_t sl = 0;
             uint8_t *sng = rs_psarc_read(p, se, &sl);

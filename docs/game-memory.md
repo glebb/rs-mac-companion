@@ -26,6 +26,7 @@ Contents:
 11. [What did not work](#11-what-did-not-work)
 12. [Finding something new](#12-finding-something-new)
 13. [Ideas not explored yet](#13-ideas-not-explored-yet)
+14. [RS Re-ARMed Learn & Play (the Windows game)](#14-rs-re-armed-learn--play-the-windows-game)
 
 ## 1. The process
 
@@ -388,3 +389,29 @@ the game's file reads, arrangement objects, timer, decoy clocks and banners.
 - **The play record as the timer itself**: its int32 milliseconds (Section 6) could replace the
   double, but whether one record lives for the whole song (across pauses and restarts) is not
   checked; it is used only to confirm the double.
+
+## 14. RS Re-ARMed Learn & Play (the Windows game)
+
+RS Re-ARMed Learn & Play runs the Windows game (32-bit, Steam depot 221683), recompiled. Measured
+2026-11-08 with `tools/lp_probe.c` and the dylib, in *18 And Life* (Learn a Song, Lead and Lead 2):
+
+| What | Learn & Play | How the dylib uses it |
+|---|---|---|
+| Memory | one 4 GB guest window at `rc_slide`; guest address + `rc_slide` = host address. Image at guest `0xf80000`, heap from `0x50000000`; about 520 MB in use while playing; every region has tag 0 | scans only the window |
+| Pointers | 4 bytes (guest addresses) | 4-byte pointer searches |
+| Strings | not MSVC `std::string` as expected: a pointer to the text is followed (+0x10) by an image pointer `0x01d5a398` and a 1 | not read |
+| Song and arrangement | `frontend_open_file` (RS Re-ARMed's hook point for `FrontEnd_OpenFile`) sees `data\songs\bin\generic\<arrangement>.sng` (and the vocals') when the song is started, after the tuner; also `data/manifests/songs_dlc_<key>/<arrangement>.json` when the song is highlighted | the song and the selected arrangement; no arrangement-object scan |
+| Archive | `dlc/<name>_p.psarc`; the TOC key is the Mac's, `.sng` files use the PC key | the archive whose TOC lists the opened `.sng` |
+| Wwise events | `ak_post_event_name` sees `Play_<SongKey>` (the manifest's capitalisation, e.g. `Play_Skid18an`) when the song starts, `Play_<SongKey>_Preview` in the song list, `Pause_TMusic` / `Resume_TMusic` / `Stop_TMusic` around a pause | logged |
+| Song timer | a double, as on the Mac; about 128,000 doubles in [0.5, 1000], 11–28 ticking while a song plays. Two families 0.42 s apart, as on the Mac (the song timer and a clock started when the song was picked) | the Mac's rate search |
+| Play record | a float with the song position 124 bytes after a copy of `"Play_<SongKey>"` (`play_position_lp`: any float near the name, or near a pointer to it, that advances 0.2–0.4 s in 0.3 s) | confirms a candidate as on the Mac |
+| Tone banners | the Mac's text, `"<SongName> - <Tags>"` (seen: `Lead`, `Clean`) | as on the Mac |
+| Note statistics | one object with type `0x01d21048` and 111000 at `+0x8` while playing; at `+0x40`, `+0x44`, `+0x48`: 22, 22, 1 at 8 s and 76, 76, 3 at 25 s. That isn't RockSniffer's Windows layout (Section 8: hits at `+0x30`) and wasn't compared with the screen | off |
+
+In that session the first timer the play record confirmed (0.007 s off) read as garbage 0.2 s later,
+like the Mac's freed copies (Section 6); the next tone change's banner confirmed another copy. The
+searcher checks the play record again whenever it loses a confirmed timer. The tone change after
+that came from the timer 125 ms before the song file's time, with a 125 ms lead.
+
+The arrangement description object, the Score Attack statistics object and the play record's
+structure weren't needed and weren't looked for. Arrangement names occur 8–15 times in memory there.

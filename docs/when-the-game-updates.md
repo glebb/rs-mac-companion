@@ -17,6 +17,16 @@ which a reinstall keeps. The values below are the
 original game's, which RS Re-ARMed keeps; the dylib log says `RS Re-ARMed: game image slide …` once
 the game has loaded its image.
 
+**RS Re-ARMed Learn & Play** (the Windows game): the dylib has no addresses of that game. It relies on
+RS Re-ARMed's hook points `frontend_open_file` and `ak_post_event_name` (by name, so they follow the
+game) and on the Windows `.sng` key in `rsfile.c`. The log says `RS Re-ARMed Learn & Play: guest
+memory at …`, then per song `song <key> loaded by the game from …`, `selected arrangement …` and
+`play record (Learn & Play): position float at …`; a missing hook point says so at startup. If
+Learn & Play logs `mod not loaded: librscompanion.dylib: built for the Mac alone`, the library lost
+its `rc_mod_abi`. To see what the game does, put the probe in its mods folder for one song:
+`tools/lp_probe.sh install`, play, `tools/lp_probe.sh remove`; it logs to `lp_probe.log` in the data
+folder ([game-memory.md § 14](game-memory.md#14-rs-re-armed-learn--play-the-windows-game)).
+
 **The game itself changed** (detection stops working although the dylib loads): the values are the
 same as below, but the dylib has its own copy of them as `#define`s at the top of
 [native/rscompanion.c](../native/rscompanion.c) (`IMAGE_BASE`, `ARRANGEMENT_VTABLE`, `ARR_NAME`, and

@@ -25,6 +25,10 @@ static const uint8_t TOC_IV[16] = {
 static const uint8_t SNG_KEY_MAC[32] = {
     0x98, 0x21, 0x33, 0x0E, 0x34, 0xB9, 0x1F, 0x70, 0xD0, 0xA4, 0x8C, 0xBD, 0x62, 0x59, 0x93, 0x12,
     0x69, 0x70, 0xCE, 0xA0, 0x91, 0x92, 0xC0, 0xE6, 0xCD, 0xA6, 0x76, 0xCC, 0x98, 0x38, 0x28, 0x9D};
+// Windows .sng (songs/bin/generic/): the same format with the PC key
+static const uint8_t SNG_KEY_PC[32] = {
+    0xCB, 0x64, 0x8D, 0xF3, 0xD1, 0x2A, 0x16, 0xBF, 0x71, 0x70, 0x14, 0x14, 0xE6, 0x96, 0x19, 0xEC,
+    0x17, 0x1C, 0xCA, 0x5D, 0x2A, 0x14, 0x2E, 0x3E, 0x59, 0xDE, 0x7A, 0xDD, 0xA1, 0x8A, 0x3A, 0x30};
 
 static uint32_t be32(const uint8_t *p) { return (uint32_t)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3]; }
 static uint64_t be40(const uint8_t *p) { return (uint64_t)p[0] << 32 | be32(p + 1); }
@@ -184,7 +188,7 @@ static int skip_array(const uint8_t *d, size_t len, size_t *at, size_t rec, int3
     return 1;
 }
 
-uint8_t *rs_sng_plain(const uint8_t *sng, size_t len, size_t *plain_len) {
+static uint8_t *sng_plain_key(const uint8_t *sng, size_t len, size_t *plain_len, const uint8_t key[32]) {
     if (len < 24 || le32(sng) != 0x4A) return NULL;
     const uint8_t *iv = sng + 8;
     size_t clen = len - 24;
@@ -192,8 +196,7 @@ uint8_t *rs_sng_plain(const uint8_t *sng, size_t len, size_t *plain_len) {
     if (!dec) return NULL;
     CCCryptorRef c;
     size_t moved = 0;
-    if (CCCryptorCreateWithMode(kCCDecrypt, kCCModeCTR, kCCAlgorithmAES, ccNoPadding, iv, SNG_KEY_MAC,
-                                sizeof SNG_KEY_MAC, NULL, 0, 0, kCCModeOptionCTR_BE, &c) != kCCSuccess) {
+    if (CCCryptorCreateWithMode(kCCDecrypt, kCCModeCTR, kCCAlgorithmAES, ccNoPadding, iv, key, 32, NULL, 0, 0, kCCModeOptionCTR_BE, &c) != kCCSuccess) {
         free(dec);
         return NULL;
     }
@@ -228,6 +231,12 @@ uint8_t *rs_sng_plain(const uint8_t *sng, size_t len, size_t *plain_len) {
     }
     *plain_len = plen;
     return d;
+}
+
+// Mac first, then Windows: with the wrong key the zlib stream doesn't check out.
+uint8_t *rs_sng_plain(const uint8_t *sng, size_t len, size_t *plain_len) {
+    uint8_t *d = sng_plain_key(sng, len, plain_len, SNG_KEY_MAC);
+    return d ? d : sng_plain_key(sng, len, plain_len, SNG_KEY_PC);
 }
 
 int rs_sng_tones(const uint8_t *sng, size_t len, rs_tone_change **out) {

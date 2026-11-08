@@ -16,6 +16,8 @@ BUNDLED="app/build/RS Companion.app/Contents/Resources/librscompanion.dylib"
 
 T=$(mktemp -d /tmp/rsi.XXXXXX)
 trap 'rm -rf "$T"' EXIT
+# Learn & Play: none, unless a section makes one here (never the real one)
+export RS_LEARN_PLAY_DIR="$T/no-learn-play/game"
 G="$T/Rocksmith2014"
 M="$G/Rocksmith2014.app/Contents/MacOS"
 mkdir -p "$M" "$T/data"
@@ -132,8 +134,40 @@ if [ -d "$REARMED_APP" ] && ! otool -L "$REARMED_APP/Contents/MacOS/Rocksmith201
   check "library next to the executable deleted" '[ ! -e "$RM/librscompanion.dylib" ]'
   check "library in the mods folder" 'cmp -s "$R/mods/librscompanion.dylib" "$BUNDLED"'
   check "signature valid" 'codesign -v "$RG/Rocksmith2014.app" 2>/dev/null'
+
+  echo "9b. RS Re-ARMed with Learn & Play installed too: both mods folders"
+  L="$T/learn-play-both"
+  mkdir -p "$L/game" && touch "$L/game/Rocksmith2014.exe"
+  brun() { RS_LEARN_PLAY_DIR="$L/game" rrun "$@"; }
+  check "status: update available (Learn & Play lacks it)" '[ "$(brun --game-status)" = "Installed; an update is available" ]'
+  brun --install-game | sed 's/^/    /'
+  check "status: installed" '[ "$(brun --game-status)" = "Installed in Rocksmith" ]'
+  check "library in Learn & Play's mods folder" 'cmp -s "$L/mods/librscompanion.dylib" "$BUNDLED"'
+  check "library in the Mac edition's mods folder" 'cmp -s "$R/mods/librscompanion.dylib" "$BUNDLED"'
+  brun --uninstall-game | sed 's/^/    /'
+  check "uninstall: gone from both" '[ ! -e "$L/mods/librscompanion.dylib" ] && [ ! -e "$R/mods/librscompanion.dylib" ]'
 else
   echo "8-9. skipped: no RS Re-ARMed without the companion at $REARMED_APP"
 fi
+
+echo "10. RS Re-ARMed Learn & Play alone: its mods folder"
+L="$T/learn-play"
+mkdir -p "$L/game" && touch "$L/game/Rocksmith2014.exe"
+lrun() { RS_COMPANION_DATA="$T/data" RS_LEARN_PLAY_DIR="$L/game" "$APPBIN" "$@" "$L/game"; }
+check "status: not installed" '[ "$(lrun --game-status)" = "Not installed in Rocksmith" ]'
+lrun --install-game | sed 's/^/    /'
+check "status: installed" '[ "$(lrun --game-status)" = "Installed in Rocksmith" ]'
+check "library in its mods folder" 'cmp -s "$L/mods/librscompanion.dylib" "$BUNDLED"'
+check "library not quarantined" '! xattr "$L/mods/librscompanion.dylib" | grep -q quarantine'
+check "game folder untouched" '[ "$(ls "$L/game")" = "Rocksmith2014.exe" ]'
+check "the bundled library is one Learn & Play loads" 'nm -arch arm64 "$BUNDLED" | grep -q " _rc_mod_abi$"'
+printf x >> "$L/mods/librscompanion.dylib"
+check "a changed library: update available" '[ "$(lrun --game-status)" = "Installed; an update is available" ]'
+lrun --install-game > /dev/null
+check "library replaced" 'cmp -s "$L/mods/librscompanion.dylib" "$BUNDLED"'
+check "picking Rocksmith2014.exe finds the folder" '[ "$(RS_COMPANION_DATA="$T/data" "$APPBIN" --game-status "$L/game")" = "Installed in Rocksmith" ]'
+lrun --uninstall-game | sed 's/^/    /'
+check "uninstall: library gone" '[ ! -e "$L/mods/librscompanion.dylib" ]'
+check "uninstall: status not installed" '[ "$(lrun --game-status)" = "Not installed in Rocksmith" ]'
 
 [ $fails = 0 ] && echo PASS || { echo "FAIL ($fails)"; exit 1; }

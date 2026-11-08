@@ -43,7 +43,9 @@ Both need Rocksmith 2014 Remastered from Steam on macOS (it runs under Rosetta o
 RS Companion also works with [RS Re-ARMed](https://github.com/bbelgg/rs-rearmed), the native
 Apple Silicon port: when it's installed, RS Companion installs into it instead, as a library in its
 mods folder, which doesn't change the game and survives a reinstall of RS Re-ARMed (another game
-folder can be set in Settings).
+folder can be set in Settings). RS Re-ARMed **Learn & Play** (the Windows game, which RS Re-ARMed
+also runs) works too: the same library goes into its mods folder, alongside the Mac edition's when
+both are installed. There the stream overlays' note statistics aren't available yet.
 
 ## RS Companion (the in-game version)
 

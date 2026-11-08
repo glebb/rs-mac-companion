@@ -27,8 +27,12 @@
 // What it shares with the RockNRoller library (songs, tone timelines, events, settings): rscore.c.
 // Runs in the Steam game (x86_64 under Rosetta) and in RS Re-ARMed, the native arm64 port, which
 // maps the original x86_64 image's bytes as data: same objects, same addresses plus its rc_slide.
+// Also in RS Re-ARMed Learn & Play, the Windows game recompiled (32-bit guest): there the song and
+// arrangement come from the .sng the game opens (a hook), and only the timer, play record and
+// banners are searched for, in its guest memory (see "RS Re-ARMed's mod interface" below).
 // Build: see build.sh (a universal library: x86_64 and arm64).
 #include <ctype.h>
+#include <dirent.h>
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <mach-o/dyld.h>
@@ -62,6 +66,26 @@
 #define NOTE_STATS_VTABLE 0x1017F92C0ULL
 #define NOTE_STATS_MARKER 0xC           // int32 111000
 #define SCORE_ATTACK_VTABLE 0x10180A388ULL
+
+// ================================================================ RS Re-ARMed's mod interface
+//
+// RS Re-ARMed runs mods from its mods folder in both its editions. Learn & Play (the Windows game,
+// a 32-bit guest: tools/ws7/recomp/runtime/rc_mod.h in its source) loads only a library that defines
+// rc_mod_abi. Its runtime's functions are looked up when the library starts, so the same library
+// still loads in the Steam game, which has none of them. A hook sees the Mac's call on every target:
+// the arguments in the SysV registers, guest pointers already turned into host pointers.
+__attribute__((weak, used, visibility("default"))) const int rc_mod_abi = 1;
+typedef struct { uint64_t r[16]; } rc_regs;  // the start of RS Re-ARMed's rc_ctx: rax rcx rdx rbx rsp rbp rsi rdi ...
+typedef int (*rc_pre_fn)(rc_regs *c, void *user);
+#define RC_ARG0(c) ((c)->r[7])  // rdi
+#define RC_ARG1(c) ((c)->r[6])  // rsi
+
+// Learn & Play: the game's memory is the 4 GB guest window at rc_slide, pointers in it are 4 bytes,
+// and its file calls can't be interposed. The game's FrontEnd_OpenFile shows which arrangement it
+// opens (data\songs\bin\generic\<arrangement>.sng) when a song is started.
+static int g_lp;
+static uint64_t g_scan_lo = 0, g_scan_hi = UINT64_MAX;  // what scans cover: on Learn & Play, the guest window
+static char g_lp_game_dir[1024];
 
 #define OUR_TAG 250      // VM tag of our own buffers (application-specific tags are 240..255)
 #define CHUNK (1 << 20)
@@ -213,6 +237,9 @@ static pthread_mutex_t g_state_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static char g_last_key[256], g_last_archive[1024];
 static double g_last_load;
+static char g_lp_selected[128];      // Learn & Play: the arrangement the game opened last (g_state_lock)
+static unsigned g_lp_selected_gen;   // the g_song_gen of its song
+static void log_and_keep_song(song *s, const char *key, const char *path, double t, const char *selected);
 
 static void handle_read(const read_event *ev) {
     rs_psarc *p = archive(ev->path);
@@ -235,8 +262,13 @@ static void handle_read(const read_event *ev) {
 
     song *s = load_song(p, key);
     if (!s) return;
-    for (int i = 0; i < s->narr; i++) snprintf(s->arr[i].archive, sizeof s->arr[i].archive, "%s", ev->path);
-    logline("song %s loaded by the game from %s: %d arrangements read in %.0f ms", key, short_path(ev->path),
+    log_and_keep_song(s, key, ev->path, t, NULL);
+}
+
+// The song just loaded: logged, then g_song. selected: the arrangement the game opened (Learn & Play).
+static void log_and_keep_song(song *s, const char *key, const char *path, double t, const char *selected) {
+    for (int i = 0; i < s->narr; i++) snprintf(s->arr[i].archive, sizeof s->arr[i].archive, "%s", path);
+    logline("song %s loaded by the game from %s: %d arrangements read in %.0f ms", key, short_path(path),
             s->narr, (now_s() - t) * 1000);
     for (int i = 0; i < s->narr; i++) {
         const arrangement *a = &s->arr[i];
@@ -253,8 +285,72 @@ static void handle_read(const read_event *ev) {
     g_song = s;
     g_song_gen++;
     g_song_loaded_at = t;
+    if (selected) snprintf(g_lp_selected, sizeof g_lp_selected, "%s", selected), g_lp_selected_gen = g_song_gen;
     pthread_mutex_unlock(&g_state_lock);
     free(old);
+}
+
+// ---------------------------------------------------------------- Learn & Play: the opened .sng
+
+// The archive (dlc/, its folders, then the game folder) whose table of contents has `entry`.
+static int lp_find_archive(const char *dir, const char *entry, int depth, char *out, size_t outlen) {
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    struct dirent *e;
+    int found = 0;
+    while (!found && (e = readdir(d))) {
+        if (e->d_name[0] == '.') continue;
+        char path[1400];
+        snprintf(path, sizeof path, "%s/%s", dir, e->d_name);
+        if (e->d_type == DT_DIR) {
+            if (depth > 0) found = lp_find_archive(path, entry, depth - 1, out, outlen);
+            continue;
+        }
+        if (!is_archive(path)) continue;
+        rs_psarc *p = rs_psarc_open(path);
+        if (p && rs_psarc_find(p, entry)) snprintf(out, outlen, "%s", path), found = 1;
+        rs_psarc_close(p);
+    }
+    closedir(d);
+    return found;
+}
+
+static void handle_lp_sng(const char *name) {
+    static char last[128];
+    static double last_at;
+    size_t n = strlen(name);
+    const char *us = strrchr(name, '_');
+    if (!us || us == name || ends_with(name, "_vocals") || ends_with(name, "_jvocals")) return;
+    double t = now_s();
+    if (!strcmp(name, last) && t - last_at < 3) return;
+    snprintf(last, sizeof last, "%s", name);
+    last_at = t;
+    char key[128], entry[300], path[1400] = "", dlc[1100];
+    snprintf(key, sizeof key, "%.*s", (int)(us - name), name);
+    snprintf(entry, sizeof entry, "songs/bin/generic/%.*s.sng", (int)n, name);
+    snprintf(dlc, sizeof dlc, "%s/dlc", g_lp_game_dir);
+    if (!lp_find_archive(dlc, entry, 3, path, sizeof path) && !lp_find_archive(g_lp_game_dir, entry, 0, path, sizeof path)) {
+        logline("the game opened %s.sng, which no archive in %s has", name, g_lp_game_dir);
+        return;
+    }
+    rs_psarc *p = archive(path);
+    song *s = p ? load_song(p, key) : NULL;
+    if (s) log_and_keep_song(s, key, path, t, name);
+}
+
+static void lp_enqueue(const char *name) {
+    char *copy = strdup(name);
+    if (!copy) return;
+    pthread_mutex_lock(&g_q_lock);
+    if (g_qtail - g_qhead < QUEUE) {
+        g_q[g_qtail++ % QUEUE] = (read_event){copy, -1};
+        pthread_cond_signal(&g_q_cond);
+        copy = NULL;
+    } else {
+        g_dropped++;
+    }
+    pthread_mutex_unlock(&g_q_lock);
+    free(copy);
 }
 
 static void *worker(void *arg) {
@@ -267,7 +363,8 @@ static void *worker(void *arg) {
         g_dropped = 0;
         pthread_mutex_unlock(&g_q_lock);
         if (dropped) logline("warning: %u read events dropped (queue full)", dropped);
-        handle_read(&ev);
+        if (ev.off == -1) handle_lp_sng(ev.path);
+        else handle_read(&ev);
         free(ev.path);
     }
     return NULL;
@@ -426,7 +523,7 @@ static uint64_t scan_between(uint8_t *buf, const tagset *only, uint64_t lo, uint
 }
 
 static uint64_t scan(uint8_t *buf, const tagset *only, chunk_fn fn, void *ctx) {
-    return scan_between(buf, only, 0, UINT64_MAX, fn, ctx);
+    return scan_between(buf, only, g_scan_lo, g_scan_hi, fn, ctx);
 }
 
 // Address ranges for narrow scans: windows of RANGE_HALF on both sides of where something was
@@ -560,8 +657,10 @@ static void wait_for_image(void) {
     if (!g_rc_slide) return;
     uint64_t s;
     while (!(s = __atomic_load_n(g_rc_slide, __ATOMIC_ACQUIRE))) usleep(100000);
+    if (g_lp) g_scan_lo = s, g_scan_hi = s + (1ULL << 32);
     if (!__atomic_exchange_n(&g_slide, s, __ATOMIC_RELAXED))
-        logline("RS Re-ARMed: game image slide 0x%llx", (unsigned long long)s);
+        logline(g_lp ? "RS Re-ARMed Learn & Play: guest memory at 0x%llx" : "RS Re-ARMed: game image slide 0x%llx",
+                (unsigned long long)s);
 }
 
 // dyld applies __interpose only for libraries loaded at launch; RS Re-ARMed loads this library from
@@ -596,7 +695,7 @@ static void *patch_game_imports(void *arg) {
         {(void *)close, (void *)my_close},   {(void *)fclose, (void *)my_fclose}, {(void *)fread, (void *)my_fread},
         {(void *)read, (void *)my_read},     {(void *)pread, (void *)my_pread},
     };
-    if (!g_rc_slide) return NULL;  // the Steam game: __interpose did it
+    if (!g_rc_slide || g_lp) return NULL;  // the Steam game: __interpose did it; Learn & Play: the open hook
     wait_for_image();
     const struct mach_header_64 *h = (const void *)(uintptr_t)(IMAGE_BASE + g_slide);
     // The binds take milliseconds after rc_slide; try for a few seconds until the slots are there.
@@ -877,6 +976,7 @@ static void timer_search(uint8_t *buf, unsigned gen) {
     logline("timer search (%s, %.0f MB): %zu doubles, %zu ticking, +%d candidates (pool %d) in %.1f s",
             only ? "narrow" : "full", bytes / 1048576.0, snapped, g_ts.n, added, pool, now_s() - t0);
     ts_free();
+    if (!snapped) usleep(1000000);  // nothing to watch: the passes' waits didn't run
 }
 
 // ================================================================ play record
@@ -923,6 +1023,72 @@ static int32_t play_ms(uint64_t a, uint64_t text, size_t len) {
     return ms >= 0 && ms < 100000000 && diff > -2 && diff < 2 ? ms : -1;
 }
 
+// Learn & Play: the record's layout there is not known, and its strings are not the Mac's. Near
+// each copy of the name, and near each 4-byte pointer to one, a float that advances with the song
+// (seconds) is the position: read twice, 300 ms apart. A wrong one matches no timer candidate.
+typedef struct { uint32_t want[PLAY_RECS]; int nwant; uint64_t hits[PLAY_RECS]; int n; } ptrs32_search;
+
+static int find_ptrs32(uint64_t base, const uint8_t *d, size_t len, void *ctx) {
+    ptrs32_search *ps = ctx;
+    for (size_t i = 0; i + 4 <= len; i += 4) {
+        uint32_t v;
+        memcpy(&v, d + i, 4);
+        for (int j = 0; j < ps->nwant; j++)
+            if (v == ps->want[j]) {
+                if (ps->n == PLAY_RECS) return 0;
+                ps->hits[ps->n++] = base + i;
+                break;
+            }
+    }
+    return 1;
+}
+
+#define LP_NEAR_BEFORE 0x40
+#define LP_NEAR_AFTER 0x80
+static double play_position_lp(uint8_t *buf, const banner_search *bs, const tagset *only) {
+    static ptrs32_search ps;  // in our image: never scanned
+    uint64_t bases[2 * PLAY_RECS];
+    int nb = 0;
+    ps.nwant = ps.n = 0;
+    for (int i = 0; i < bs->n && nb < PLAY_RECS; i++) {
+        bases[nb++] = bs->hits[i];
+        if (bs->hits[i] >= g_slide && bs->hits[i] - g_slide < (1ULL << 32))
+            ps.want[ps.nwant++] = (uint32_t)(bs->hits[i] - g_slide);
+    }
+    if (ps.nwant) scan(buf, only, find_ptrs32, &ps);
+    for (int i = 0; i < ps.n; i++) bases[nb++] = ps.hits[i];
+    enum { MAXF = 512 };
+    static uint64_t at[MAXF];
+    static float f0[MAXF];
+    static int from_base[MAXF];
+    int nf = 0;
+    for (int b = 0; b < nb; b++) {
+        uint8_t r[LP_NEAR_BEFORE + LP_NEAR_AFTER];
+        uint64_t from = bases[b] - LP_NEAR_BEFORE;
+        if (!safe_read(from, r, sizeof r)) continue;
+        for (size_t o = 0; o + 4 <= sizeof r && nf < MAXF; o += 4) {
+            float f;
+            memcpy(&f, r + o, 4);
+            if (f >= 0.05f && f < 20000.0f) at[nf] = from + o, from_base[nf] = b, f0[nf++] = f;
+        }
+    }
+    if (!nf) return -1;
+    usleep(300000);
+    for (int i = 0; i < nf; i++) {
+        float f1;
+        if (!safe_read(at[i], &f1, 4) || f1 - f0[i] < 0.2f || f1 - f0[i] > 0.4f) continue;
+        tags_learn(TAGS_PLAY, at[i]);
+        static uint64_t said;
+        if (said != at[i]) {
+            said = at[i];
+            logline("play record (Learn & Play): position float at %llx, %+lld bytes from \"%s\"", (unsigned long long)at[i],
+                    (long long)(at[i] - bases[from_base[i]]), bs->pat);
+        }
+        return f1;
+    }
+    return -1;
+}
+
 // The position of the live play record of song_key in seconds (read just now), or -1 (the song
 // is not playing: not started yet, paused, or left).
 static double play_position(uint8_t *buf, banner_search *bs, ptrs_search *ps, const char *song_key) {
@@ -934,6 +1100,7 @@ static double play_position(uint8_t *buf, banner_search *bs, ptrs_search *ps, co
     tagset tags;
     const tagset *only = round++ % 5 != 4 ? tags_for(TAGS_PLAY, &tags) : NULL;
     scan(buf, only, find_text, bs);
+    if (g_lp) return play_position_lp(buf, bs, only);
     uint64_t recs[PLAY_RECS], texts[PLAY_RECS];
     int n = 0;
     ps->nwant = 0;
@@ -1041,6 +1208,9 @@ static void *searcher(void *arg) {
             usleep(200000);
             continue;
         }
+        // A timer the play record confirmed can go (unreadable: a copy that was freed, as seen in
+        // Learn & Play within a second): check against the play record again.
+        if (!confirmed && checked_gen == arr_gen) checked_gen = 0;
         // Look for the selected arrangement only after the game loads a song (picking another
         // arrangement loads the song again), or the app comes back: every second for up to 2
         // minutes, until found. Narrow scans (cheap) first; every fifth try covers everything.
@@ -1050,7 +1220,13 @@ static void *searcher(void *arg) {
         if (song_gen != seen_song_gen && t - since < 120 && t - last_arr_check >= 1) {
             last_arr_check = t;
             char name[128];
-            selected_arrangement(buf, key, tries++ % 5 != 4, name, sizeof name);
+            if (g_lp) {  // the game opened its .sng: no scan
+                pthread_mutex_lock(&g_state_lock);
+                snprintf(name, sizeof name, "%s", g_lp_selected_gen == song_gen ? g_lp_selected : "");
+                pthread_mutex_unlock(&g_state_lock);
+            } else {
+                selected_arrangement(buf, key, tries++ % 5 != 4, name, sizeof name);
+            }
             if (name[0] && (song_gen != seen_song_gen || strcmp(name, cur))) {
                 pthread_mutex_lock(&g_state_lock);
                 const arrangement *a = NULL;
@@ -1537,6 +1713,10 @@ static int emit_stats(uint64_t note, uint64_t sa) {
 static void *stats_watch(void *arg) {
     (void)arg;
     wait_for_image();
+    if (g_lp) {  // its objects there are not known yet (docs/game-memory.md)
+        logline("note statistics: not on Learn & Play yet");
+        return NULL;
+    }
     cpu_register(CPU_STATS);
     uint8_t *buf = own_alloc(CHUNK);
     stats_search *ss = own_alloc(sizeof *ss);
@@ -1629,6 +1809,60 @@ static int another_copy_loaded(void) {
     return 0;
 }
 
+// ---------------------------------------------------------------- Learn & Play hooks (game thread: cheap)
+
+static int lp_on_open_file(rc_regs *c, void *user) {
+    (void)user;
+    const char *path = (const char *)(uintptr_t)RC_ARG1(c);
+    if (!path) return 0;
+    size_t n = strlen(path);
+    if (n < 5 || n > 400 || strcasecmp(path + n - 4, ".sng")) return 0;
+    const char *slash = strrchr(path, '\\'), *fwd = strrchr(path, '/');
+    if (!slash || (fwd && fwd > slash)) slash = fwd;
+    const char *name = slash ? slash + 1 : path;
+    char base[160];
+    snprintf(base, sizeof base, "%.*s", (int)(path + n - 4 - name), name);
+    lp_enqueue(base);
+    return 0;
+}
+
+// Logged: Play_ events (the song's own one, Play_<SongKey>, when it starts) and Stop_/Pause_/Resume_
+// of the music, which tell in the log when the song plays.
+static int lp_on_event(rc_regs *c, void *user) {
+    (void)user;
+    const char *ev = (const char *)(uintptr_t)RC_ARG0(c);
+    if (!ev) return 0;
+    char key[128] = "";
+    pthread_mutex_lock(&g_state_lock);
+    if (g_song && g_song->narr) snprintf(key, sizeof key, "%s", g_song->arr[0].song_key);
+    pthread_mutex_unlock(&g_state_lock);
+    if ((key[0] && !strncmp(ev, "Play_", 5) && !strcasecmp(ev + 5, key)) || !strcmp(ev, "Pause_TMusic") ||
+        !strcmp(ev, "Resume_TMusic") || !strcmp(ev, "Stop_TMusic"))
+        logline("the game posted %s", ev);
+    return 0;
+}
+
+static void lp_init(void) {
+    const char *(*target)(void) = (const char *(*)(void))dlsym(RTLD_DEFAULT, "rc_target");
+    int (*hook)(const char *, rc_pre_fn, void *, void *) =
+        (int (*)(const char *, rc_pre_fn, void *, void *))dlsym(RTLD_DEFAULT, "rc_hook_add_name");
+    if (!target || strcmp(target(), "win-x86")) return;
+    g_lp = 1;
+    const char *e = getenv("LP_GAME_DIR");
+    char file[1024];
+    snprintf(file, sizeof file, "%s/Library/Application Support/RS Re-ARMed/learn-play/game-dir", getenv("HOME"));
+    FILE *f = e && *e ? NULL : fopen(file, "r");
+    if (e && *e) snprintf(g_lp_game_dir, sizeof g_lp_game_dir, "%s", e);
+    else if (f && fgets(g_lp_game_dir, sizeof g_lp_game_dir, f)) g_lp_game_dir[strcspn(g_lp_game_dir, "\r\n")] = 0;
+    if (f) fclose(f);
+    if (!g_lp_game_dir[0])
+        snprintf(g_lp_game_dir, sizeof g_lp_game_dir, "%s/Library/Application Support/RS Re-ARMed/learn-play/game",
+                 getenv("HOME"));
+    if (!hook || hook("frontend_open_file", lp_on_open_file, NULL, NULL))
+        logline("Learn & Play: no frontend_open_file hook point: songs won't be seen");
+    if (hook && hook("ak_post_event_name", lp_on_event, NULL, NULL)) logline("Learn & Play: no ak_post_event_name hook point");
+}
+
 __attribute__((constructor)) static void init(void) {
     char dir[1024];
     if (!data_dir(dir, sizeof dir)) return;
@@ -1637,11 +1871,15 @@ __attribute__((constructor)) static void init(void) {
     if (another_copy_loaded()) return;
     log_open(dir, "rscompanion.log");
     find_images();
-    if (g_rc_slide)
+    if (g_rc_slide) lp_init();
+    if (g_lp)
+        logline("rscompanion prototype loaded (pid %d, RS Re-ARMed Learn & Play, game folder %s)", getpid(), g_lp_game_dir);
+    else if (g_rc_slide)
         logline("rscompanion prototype loaded (pid %d, RS Re-ARMed)", getpid());
     else
         logline("rscompanion prototype loaded (pid %d, image slide 0x%llx)", getpid(), (unsigned long long)g_slide);
-    snprintf(g_tags_file, sizeof g_tags_file, "%s/rscompanion_tags.txt", dir);
+    // Learn & Play's memory is laid out apart from the Mac game's: its own file of what was learned
+    snprintf(g_tags_file, sizeof g_tags_file, "%s/rscompanion_tags%s.txt", dir, g_lp ? "_lp" : "");
     snprintf(g_config_file, sizeof g_config_file, "%s/rscompanion.json", dir);
     config_poll();
     logline("lead time %d ms; events to %s/events.sock", g_lead_ms, dir);
