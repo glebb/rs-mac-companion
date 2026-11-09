@@ -1,5 +1,5 @@
 """Stand-in for OpenAI's Responses API for tests/run_ai_app_test.sh: answers every song key in the
-prompt with Classic rock / crunch (high), records each request body to argv[2], and answers key
+prompt with Classic rock (high), records each request body to argv[2], and answers key
 sk-bad with a 401 like the real API. Prints its port."""
 import http.server
 import json
@@ -15,7 +15,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             out, code = {"error": {"message": "Incorrect API key provided"}}, 401
         else:
             keys = [line.split(" | ")[0] for line in body["input"].splitlines() if line.count(" | ") >= 4]
-            songs = [{"song_key": k, "style": "Classic rock", "distortion": "crunch", "confidence": "high",
+            songs = [{"song_key": k, "style": "Classic rock", "confidence": "high",
                       "reason": "stub"} for k in keys]
             text = json.dumps({"songs": songs})
             out, code = {"status": "completed", "output": [

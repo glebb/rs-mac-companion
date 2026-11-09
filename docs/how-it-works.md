@@ -103,14 +103,13 @@ catch up, and tells it whether the game (with the dylib) is running.
 | File | Does |
 |---|---|
 | `EventSocket.swift` | binds `events.sock`, decodes events on a background queue, delivers them on the main thread |
-| `Presets.swift` | the mapping in `presets.json` and the AI answers, evaluated exactly like `presets.py` (checked on all 17,542 tone slots of a library) |
+| `Presets.swift` | the mapping in `presets.json`, evaluated exactly like `presets.py`, and the AI's styles (checked on all 17,542 tone slots of a library) |
 | `Category.swift` | Clean, Crunch, Heavy, Lead |
 | `Settings.swift` | `rscompanion.json`: device profile, lead time, stream overlays, AI classification and its model |
-| `Profile.swift` | device profiles in `profiles/`: what's sent on song load and per tone, knobs included, and where; [device-profiles.md](device-profiles.md) |
+| `Profile.swift` | device profiles in `profiles/`: what's sent on song load and per tone (a category's steps, or its band's), knobs included (sums of terms, per amp too), an added delay, and where; [device-profiles.md](device-profiles.md) |
 | `AIClassifier.swift` | AI song classification: asks OpenAI's Responses API about a song (the prompt and answer schema of `classify_songs.py`), saves the answer in `ai_classified.json`; the API key in the keychain |
 | `MIDIOut.swift` | plays a profile's steps in order as MIDI 1.0 UMP: from a CoreMIDI virtual source "Rocksmith Companion" or straight to a MIDI destination; held for the first second so listeners can connect |
-| `ToneHost.swift` | tells rs-tonehost, the plug-in host of [rearmed-mods](https://github.com/glebb/rearmed-mods), a song's AI gain offset as it loads, as a line on its FIFO; nothing if no host is running |
-| `Rig.swift` | a song's gear read from its archive: each tone's tags, drive and effects, the song's tuning and heaviness; the same rules as `rig.py` (checked identical on all 2,768 songs of a library) |
+| `Rig.swift` | a song's gear read from its archive: each tone's tags, drive and effects, the song's tuning and heaviness; the same rules as `rig.py` (checked identical on all 2,768 songs of a library). Only the app reads the drive pedals as effects, for profiles (`overdrive`, `distortion`) |
 | `SongTones.swift` | song tone messages: the SysEx (manufacturer 0x7D, then JSON, version 2) sent when a song loads, describing each tone in Rocksmith's terms for any tool, and a Program Change per tone (8–12 by default). The format: [song-tone-messages.md](song-tone-messages.md) |
 | `Companion.swift` | state, mapping, overrides, when to send, AI requests and their answers, install status and warnings |
 | `GameInstaller.swift`, `MachOPatcher.swift` | install, update and uninstall in the game (below) |
@@ -127,19 +126,18 @@ catch up, and tells it whether the game (with the dylib) is running.
 4. `default`
 
 then `artists` may change the result of 3 or 4 for the song's artist (`{"Bon Jovi": {"Heavy":
-"Crunch"}}`), or where that has nothing for the category, an AI model (reason `, AI`, shown as
-"AI"): the song's own answer in `ai_classified.json` ("crunch" turns Heavy into Crunch, "heavy"
-Crunch into Heavy), or for a song without one, the artist-wide suggestions in
-`ai_suggestions.json` (`classify_songs.py`); songs in `ai_rejected` get neither. The window counts
-these as automatic: the badge shows no pencil for them, and reset doesn't remove them.
+"Crunch"}}`). The window counts these as automatic: the badge shows no pencil for them, and reset
+doesn't remove them. An AI model never changes a category: it only names the song's style (the
+song's own answer in `ai_classified.json`, else the `song_styles` of `ai_suggestions.json` from
+`classify_songs.py`; songs in `ai_rejected` get neither).
 
 With the AI setting on and a key in the keychain, the app asks the model about a song the first
 time it loads (`AIClassifier.swift`, the same prompt as `classify_songs.py`), in the background;
 when the answer is saved the song is mapped again (and the song tone message sent again), so
 the answer is in use without a click. A failed request is shown in the window and tried again
 when a key is saved or the app restarts. Nothing goes online with the setting off.
-**Keep as mine** writes what it changes as `songs` overrides and a `song_styles` entry; **Don't
-use** adds the song to `ai_rejected`.
+**Keep as mine** writes its style as a `song_styles` entry; **Don't use** adds the song to
+`ai_rejected`.
 
 (Rule syntax, the default rules, their limits and how to tune them: see
 [How tones are mapped](../README.md#how-tones-are-mapped).)

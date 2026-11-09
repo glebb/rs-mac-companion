@@ -117,9 +117,8 @@ struct CompanionView: View {
         }
     }
 
-    /// What the AI model says about this song. Its answer is in use already; while it changes
-    /// something, "Keep as mine" makes the changes your own overrides and "Don't use" turns it off
-    /// for the song.
+    /// What the AI model says about this song: its style, which is in use already. While that differs
+    /// from the rules', "Keep as mine" makes it your own and "Don't use" turns it off for the song.
     @ViewBuilder
     private func aiPanel(_ verdict: AIVerdict) -> some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -131,8 +130,7 @@ struct CompanionView: View {
                 }
             case .answered(let a):
                 HStack {
-                    Text("AI: \(a.style), \(a.distortion == "none" ? "no distortion" : a.distortion)"
-                         + (a.confidence == "medium" ? " (from the artist's sound)" : ""))
+                    Text("AI: \(a.style)" + (a.confidence == "medium" ? " (from the artist's sound)" : ""))
                         .font(.caption.weight(.semibold))
                     Spacer()
                     if !verdict.changes.isEmpty {
@@ -141,12 +139,12 @@ struct CompanionView: View {
                 }
                 if !a.reason.isEmpty { Text(a.reason) }
                 if verdict.changes.isEmpty {
-                    Text("Nothing to change here: the rules and your overrides agree.")
+                    Text("Nothing to change here: the rules give the same style.")
                 } else {
                     ForEach(verdict.changes, id: \.self) { Text("• " + $0) }
                     HStack {
                         Button("Keep as mine") { companion.acceptAI() }
-                            .help("Make these changes your own overrides for this song")
+                            .help("Make this style your own for this song")
                         Button("Don't use") { companion.rejectAI() }
                             .help("Go back to the rules for this song")
                     }
@@ -232,7 +230,7 @@ struct CompanionView: View {
         } label: {
             HStack(spacing: 3) {
                 if row.overridden { Image(systemName: "pencil") }
-                Text("\(row.category.name) · \(companion.label(for: row.category))")
+                Text("\(row.category.name) · \(companion.label(for: row))")
             }
             .font(.caption.weight(active ? .semibold : .regular))
         }
@@ -246,7 +244,6 @@ struct CompanionView: View {
 
     private func reasonLabel(_ row: ToneRow) -> String {
         if row.overridden { return "changed · auto: \(row.automatic.name)" }
-        if row.reason.hasSuffix(", AI") { return "AI" }
         switch row.reason {
         case "default": return "default"
         case "name": return "by name"

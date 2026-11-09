@@ -24,7 +24,6 @@ trap 'kill $APP $MONITOR $DEVICE $STANDIN 2>/dev/null || true; wait 2>/dev/null;
 clang -O1 -c native/rsfile.c -o "$DATA/rsfile.o"
 swiftc -parse-as-library -import-objc-header app/Sources/rsfile-bridge.h tests/profile_harness.swift \
   app/Sources/Profile.swift app/Sources/SongTones.swift app/Sources/Category.swift app/Sources/Rig.swift \
-  app/Sources/ToneHost.swift \
   "$DATA/rsfile.o" -lz -o "$DATA/harness" 2>&1 | grep -v warning || true
 "$DATA/harness" profiles
 
@@ -56,7 +55,7 @@ cat > "$DATA/profiles/test-device.json" <<'JSON'
 }
 JSON
 echo '{"profile": "test-device"}' > "$DATA/rscompanion.json"
-# The AI's correction reaches the drive knob of a distorted tone.
+# An old AI answer with a gain offset: the drive knob ignores it.
 echo '{"selftrap": {"style": "Classic rock", "distortion": "crunch", "gain_offset": 0.3, "confidence": "high", "reason": "test"}}' > "$DATA/ai_classified.json"
 build/midi_monitor --device "RS Test Device" > "$DATA/device.txt" & DEVICE=$!
 sleep 1
@@ -92,7 +91,7 @@ if len(tones) != 12 or tones[2:6] != fixed(61) or tones[8:12] != fixed(70):
 if not all(tones[i].startswith("Control Change 69 = ") for i in (0, 6)) or tones[0] == tones[6]:
     problems.append(f"snapshots: {tones[0:1] + tones[6:7]}")
 drive = [int(re.search(r"Control Change 30 = (\d+)", t).group(1)) if "Change 30 =" in t else -1 for t in tones[1:2] + tones[7:8]]
-if drive != [42, 59]:  # clean: the top of the clean band, 1/3. Crunch: 0.57 less 0.3/3
+if drive != [42, 72]:  # clean: the top of the clean band, 1/3. Crunch: its gear's 0.57
     problems.append(f"drive knob: {drive}")
 virtual = [l for l in open(sys.argv[2]) if "Program Change" in l or "Control Change" in l or "SysEx" in l]
 if virtual:

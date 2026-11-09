@@ -8,7 +8,7 @@ to MIDI), in four categories: Clean, Crunch, Heavy and Lead.
 
 It can also describe each song's tones to a tool that makes a sound for each (song tone messages),
 stand in for RockSniffer's stream overlays, and, if you give it an OpenAI API key, ask an AI model
-which songs should sound Crunch or Heavy (experimental).
+each song's style (experimental).
 
 **Scope.** RS Companion's job is to know what Rocksmith is doing and report it in standard forms
 that aren't tied to any device: Program Changes, a documented SysEx message, RockSniffer's overlay
@@ -116,8 +116,8 @@ Start RS Companion and Rocksmith (any order) and pick a song. The menu-bar windo
   is on time, slightly early);
 - the song, artist and part, and every tone of the part with its tags and category (Clean,
   Crunch, Heavy, Lead) and what it sends; the active tone is highlighted;
-- with [AI song classification](#ai-song-classification-experimental) on, what the AI model says
-  about the song;
+- with [AI song classification](#ai-song-classification-experimental) on, the style the AI model
+  gives the song;
 - the last MIDI message, **Pause MIDI** and **Resend**.
 
 What's sent, and where, is the [device profile](docs/device-profiles.md) chosen in Settings. Out of
@@ -147,21 +147,22 @@ RS Companion offers **Restart RockNRoller**. Tone changes stay on cue at any pla
 
 ### AI song classification (experimental)
 
-The rules only see a tone's gear, and Rocksmith tones often have more gain than the record: Bon
-Jovi comes out Heavy where Crunch fits. With **Settings › AI › Ask an AI model about new songs**
-on and an OpenAI API key saved there (kept in the keychain), RS Companion asks an OpenAI model
-(`gpt-6-luna` by default) about each song the first time it loads: its style, and whether its
-distortion sounds like crunch or heavy on the record. The song's artist, title and what the rules
-measured are sent; nothing else. The answer comes in a few seconds, and from then on:
+The rules pick a song's style (Soft, Classic rock, Metal) from how heavy its tones are, which can
+miss what the record sounds like. With **Settings › AI › Ask an AI model about new songs** on and an
+OpenAI API key saved there (kept in the keychain), RS Companion asks an OpenAI model (`gpt-6-luna`
+by default) about each song the first time it loads: its style. The song's artist, title and what
+the rules measured are sent; nothing else. The answer comes in a few seconds, and from then on:
 
-- "crunch" turns the song's Heavy tones into Crunch, "heavy" its Crunch tones into Heavy; those
-  tones show **AI** in the window, and the song's style (for song tone messages) is the answer's.
+- The song's style (for song tone messages and the HX Stomp's preset by style) is the answer's.
+  The AI doesn't change how distorted a tone is: the song's gear, the rules and your overrides
+  decide that. (Earlier versions also let it move tones between Crunch and Heavy and turn their
+  gain down. That made most distorted tones too clean, so it's gone, and those parts of older
+  answers are ignored.)
 - The answer is used right away, without a click: the window shows it, its reason and what it
-  changes, marked **In use**, with **Keep as mine** (make the changes your own overrides for the
-  song, so they stay whatever the AI says later) and **Don't use** (back to the rules for this
-  song; **Use again** undoes it).
-- Your overrides and `artists` entries always win, and answers the model marks as guesses aren't
-  used.
+  changes, marked **In use**, with **Keep as mine** (make the style your own for the song, so it
+  stays whatever the AI says later) and **Don't use** (back to the rules for this song; **Use
+  again** undoes it).
+- Your own `song_styles` always win, and answers the model marks as guesses aren't used.
 
 Answers are kept in `ai_classified.json` in the data folder, one per song, so each song is asked
 about once; [`classify_songs.py`](#developer-tools) can fill it for a whole library at once.
@@ -287,12 +288,8 @@ re-read it while running. First match wins:
 4. `default`
 
 Then `artists` can change what the rules gave for a whole band, e.g.
-`{"Bon Jovi": {"Heavy": "Crunch"}}` (overrides from 1 and 2 still win). Where `artists` has
-nothing for a band's category, an AI model may change it: the song's own answer in
-`ai_classified.json` (see [AI song classification](#ai-song-classification-experimental)), or for
-a song without one, the artist-wide suggestions in `ai_suggestions.json` (from
-`classify_songs.py`, see [Developer tools](#developer-tools)). Songs listed in `ai_rejected` get
-neither; delete the two files to turn the AI off.
+`{"Bon Jovi": {"Heavy": "Crunch"}}` (overrides from 1 and 2 still win). The AI doesn't change
+categories.
 
 RS Companion reads preset names as categories: Clean, Crunch, Heavy and Lead directly, others
 through `categories` (Distortion → Heavy, Acoustic → Clean, Bass → Clean, Bass Drive → Crunch).
@@ -300,7 +297,9 @@ through `categories` (Distortion → Heavy, Acoustic → Clean, Bass → Clean, 
 For song tone messages, `styles` labels each song by its heaviness (the last entry whose `from`
 the song reaches; Soft, Classic rock from 0.3, Metal from 0.75 by default), and `song_styles`
 sets the label for a song key or an artist, e.g. `{"AC/DC": "Classic rock"}`; after it, the
-song's AI answer, then the `song_styles` in `ai_suggestions.json`.
+song's AI answer, then the `song_styles` in `ai_suggestions.json` (from `classify_songs.py`, see
+[Developer tools](#developer-tools)). Songs listed in `ai_rejected` get neither; delete the two
+files to turn the AI off.
 
 ### How tones are mapped
 
@@ -347,15 +346,14 @@ becomes Lead because the LEAD rule comes first.
   Heavy; amps used for both (GB100, HG100, HG180, CA85, EN50) only with gain 95 or more; vintage
   and low-gain amps (TW, EN30, AT, BT, CA38, Plexi, JTM45, Bluesbreaker, ...) Crunch. Expect
   some bands on the wrong side, e.g. Bon Jovi on Heavy or some Metallica on Crunch: fix those
-  with `artists`, or let [the AI](#ai-song-classification-experimental) decide per song.
+  with `artists`.
 - Tags often name only a tone's effect (ECHO, CHORUS, FILTER, ...), not its gain. Such tones go
   by their drive, which is estimated from the amp model, its gain knob and the drive pedals.
 - LEAD wins over everything after it, so a clean lead tone (e.g. "Losing My Religion") is Lead.
 - Everything ends up as one of four categories, so close tones share a preset.
 
 **Tuning it:**
-- One song wrong: change the tone's category in the window (saved under `songs`), or, with the
-  AI on, **Keep as mine** / **Don't use** its answer.
+- One song wrong: change the tone's category in the window (saved under `songs`).
 - The same tone key wrong everywhere: add it under `tones`.
 - A whole band wrong: add it under `artists`, mapping what the rules give to what you want,
   e.g. `{"Bon Jovi": {"Heavy": "Crunch"}, "Metallica": {"Crunch": "Heavy"}}`. The keys are a
@@ -367,7 +365,7 @@ becomes Lead because the LEAD rule comes first.
   tone line ends with the preset and the reason, e.g.
   `→ Heavy (Distortion, tags DISTORTION, amp hg500 gain 88)`; the reason is `song override`,
   `tone override`, `tags ...`, `name` or `default`, with `, artist ...` added when `artists`
-  changed it or `, AI` when the AI did (the window then shows "AI").
+  changed it.
 
 ## Data folder
 
@@ -407,7 +405,7 @@ Build with `./build.sh` (Command Line Tools only): `build/rsprobe`, `build/rstoo
 | Tool | |
 |---|---|
 | `python3 make_catalog.py` | `tone_catalog.csv` (every tone: tags, preset, how it matched, amp, pedals, drive 0–1 with clean / crunch / heavy, its delay, reverb and modulation, how many songs use it) and `songs.csv` (every arrangement with its tuning, tempo, the song's heaviness, its tones, presets and drives), from the song index; the scores come from `rig.py` |
-| `python3 classify_songs.py [--limit N] [--redo]` | experimental: [AI song classification](#ai-song-classification-experimental) for the whole song index at once (about 100 songs per request). Asks an OpenAI model (`gpt-6-luna` by default) each song's style and whether its distortion sounds like crunch or heavy on the record, and saves the answers in `ai_classified.json`, the same file the app uses. It also writes `ai_suggestions.json`: artist-wide `song_styles` and `artists` entries where the model disagrees with the rules (used for songs without an answer of their own), and a list of those songs with the model's reasons, for review. `--redo` asks again about songs already answered (with `--limit N`, only the first N); the other answers stay. `presets.json` isn't changed. Sends artist names and song titles to OpenAI; needs `pip install openai` and `OPENAI_API_KEY` |
+| `python3 classify_songs.py [--limit N] [--redo]` | experimental: [AI song classification](#ai-song-classification-experimental) for the whole song index at once (about 100 songs per request). Asks an OpenAI model (`gpt-6-luna` by default) each song's style, and saves the answers in `ai_classified.json`, the same file the app uses. It also writes `ai_suggestions.json`: `song_styles` entries, per artist or per song, where the model disagrees with the rules (used for songs without an answer of their own), and a list of those songs with the model's reasons, for review. `--redo` asks again about songs already answered (with `--limit N`, only the first N); the other answers stay. `presets.json` isn't changed. Sends artist names and song titles to OpenAI; needs `pip install openai` and `OPENAI_API_KEY` |
 | `build/rstool toc\|tones <archive.psarc>` | list an archive's entries with their byte ranges / print its arrangements' tone data as JSON |
 | `python3 tools/event_listener.py` | print the events the game's library sends (quit RS Companion first: only one can listen) |
 | `build/midi_monitor` | print MIDI from the "Rocksmith Companion" source (`swiftc -O tools/midi_monitor.swift -o build/midi_monitor`) |
@@ -502,5 +500,4 @@ None beyond macOS: the in-game library, the app and `rstool` use only system lib
   followed.
 - AI song classification is only as good as the model's knowledge: it can be wrong, mostly on
   songs it doesn't know (it then says so, and its guesses aren't used). Each song is asked about
-  once; to ask again, remove the song from `ai_classified.json`. The answer only moves tones
-  between Crunch and Heavy and picks the style; Clean and Lead tones stay as the rules map them.
+  once; to ask again, remove the song from `ai_classified.json`. The answer only picks the style.

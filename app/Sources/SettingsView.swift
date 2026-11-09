@@ -40,8 +40,8 @@ struct SettingsView: View {
             section("AI (experimental)") {
                 Toggle("Ask an AI model about new songs", isOn: binding(\.aiClassify))
                 Text("The first time a song loads, its artist, title and what the rules measured go to OpenAI, which "
-                     + "says the song's style and whether its distortion should be Crunch or Heavy. The window shows "
-                     + "the answer, to accept or reject. Your own overrides always win.")
+                     + "says the song's style (Soft, Classic rock, Metal). It doesn't change how distorted a tone is. "
+                     + "The window shows the answer, to accept or reject. Your own styles always win.")
                     .font(.caption).foregroundStyle(.secondary)
                 if hasKey {
                     HStack {

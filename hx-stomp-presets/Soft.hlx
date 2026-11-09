@@ -179,7 +179,7 @@
           "@model": "HelixStomp_AppDSPFlowOutputMain",
           "@output": 1,
           "pan": 0.5,
-          "gain": 3.0
+          "gain": 0.0
         },
         "outputB": {
           "@model": "HelixStomp_AppDSPFlowOutputSend",
@@ -469,7 +469,7 @@
             },
             "ChVol": {
               "@min": 0.7,
-              "@max": 0.99,
+              "@max": 0.805,
               "@controller": 8,
               "@cc": 20,
               "@snapshot_disable": false
@@ -480,6 +480,15 @@
               "@min": -60,
               "@max": 6,
               "@controller": 9,
+              "@snapshot_disable": false
+            }
+          },
+          "block1": {
+            "Gain": {
+              "@min": 0.3,
+              "@max": 0.65,
+              "@controller": 8,
+              "@cc": 38,
               "@snapshot_disable": false
             }
           }

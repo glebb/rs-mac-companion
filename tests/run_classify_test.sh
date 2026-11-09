@@ -1,13 +1,13 @@
 #!/bin/sh
 # Test of classify_songs.py without the API: tests/stub_openai stands in for the openai
-# package and answers by artist (Bon Jovi and AC/DC Classic rock with crunch, Slayer Metal with
-# heavy, Eagles a low-confidence guess). Uses the Bon Jovi, AC/DC, Slayer and Eagles songs from
-# your song index (run index_songs.py first) in a temporary data folder. Expected: the model is
-# asked once per batch with a JSON schema, Bon Jovi and AC/DC get Heavy -> Crunch, Slayer gets no
-# Heavy -> Crunch, nothing is suggested for the Eagles, a second run asks nothing and suggests the
-# same, presets.json is not changed, and presets.py uses the suggestions (reason "AI") after your
-# own artists entry. Then --redo --limit 1 asks about one song again and keeps every other answer,
-# including one RS Companion saved for a song that isn't in the index.
+# package and answers by artist (Bon Jovi and AC/DC Classic rock, Slayer Metal, Eagles a
+# low-confidence guess). Uses the Bon Jovi, AC/DC, Slayer and Eagles songs from your song index (run
+# index_songs.py first) in a temporary data folder. Expected: the model is asked once per batch with
+# a JSON schema that asks for the style alone, every suggestion is a style the model gave, nothing is
+# suggested for the Eagles, a second run asks nothing and suggests the same, presets.json is not
+# changed, and presets.py maps tones by the rules and your artists entry alone. Then --redo
+# --limit 1 asks about one song again and keeps every other answer, including one RS Companion
+# saved for a song that isn't in the index.
 set -e
 cd "$(dirname "$0")/.."
 INDEX="${RS_COMPANION_DATA:-$HOME/Library/Application Support/rs-mac-companion}/tones_index.jsonl"
@@ -42,24 +42,25 @@ check(first == -(-len(songs) // 40), f"first run: one request per 40 songs ({fir
 check(len(reqs) == first, "second run asks nothing")
 check(all(r["model"] == "gpt-6-luna" and r["text"]["format"]["type"] == "json_schema"
           and r["text"]["format"]["strict"] for r in reqs), "gpt-6-luna with a strict JSON schema")
+check(all(sorted(r["text"]["format"]["schema"]["properties"]["songs"]["items"]["properties"])
+          == ["confidence", "reason", "song_key", "style"] for r in reqs), "the schema asks for the style alone")
 check(len(json.load(open(f"{data}/ai_classified.json"))) == len(songs), "every song answered")
 s = json.load(open(f"{data}/ai_suggestions.json"))
-check(s["artists"].get("Bon Jovi") == {"Heavy": "Crunch"}, f"Bon Jovi Heavy -> Crunch: {s['artists'].get('Bon Jovi')}")
-check(s["artists"].get("AC/DC", {}).get("Heavy") == "Crunch", f"AC/DC Heavy -> Crunch: {s['artists'].get('AC/DC')}")
-check("Heavy" not in s["artists"].get("Slayer", {}), f"Slayer keeps Heavy: {s['artists'].get('Slayer')}")
-check("Eagles" not in s["artists"] and "Eagles" not in s["song_styles"]
-      and not any(r["artist"] == "Eagles" for r in s["_songs"]), "low confidence (Eagles) suggests nothing")
+check("artists" not in s, "no artist-wide category suggestions")
+stub = {"Bon Jovi": "Classic rock", "AC/DC": "Classic rock", "Slayer": "Metal"}
+check(all(r["ai_style"] == stub[r["artist"]] for r in s["_songs"]), "every suggestion is the model's style")
+check(s["song_styles"] and all(v == stub.get(k, v) for k, v in s["song_styles"].items()), f"styles suggested: {s['song_styles']}")
+check("Eagles" not in s["song_styles"] and not any(r["artist"] == "Eagles" for r in s["_songs"]),
+      "low confidence (Eagles) suggests nothing")
 check(json.load(open(f"{data}/suggestions.first")) == s, "second run suggests the same (rules compared without the AI)")
 check(open(f"{data}/presets.json").read() == open(f"{data}/presets.before").read(), "presets.json not changed")
 from presets import Presets
 p = Presets()
 hit = p.get("", "", "riff_dist", [], artist="AC/DC")
-check(p.category(hit[0]) == "Crunch" and hit[1].endswith(", AI"), f"AC/DC dist tone -> Crunch by AI: {hit}")
+check(p.category(hit[0]) == "Heavy" and "AI" not in hit[1], f"AC/DC dist tone stays as the rules map it: {hit}")
 lead = p.get("", "", "x", ["LEAD"], artist="AC/DC")
 check(lead[1].endswith(", artist AC/DC"), f"your AC/DC Lead entry wins: {lead}")
-plain = Presets(ai_path=None).get("", "", "riff_dist", [], artist="AC/DC")
-check(p.category(plain[0]) == "Heavy", f"without the suggestions AC/DC stays Heavy: {plain}")
-nodefault = Presets(ai_path=None)
+nodefault = Presets()
 nodefault.data = {"rules": []}
 check(nodefault.get("x_rhythm", "A", "riff", [], artist="AC/DC") == ("Clean", "default"),
       "no \"default\" in presets.json: Clean, as in the app")
@@ -72,7 +73,7 @@ python3 - "$DATA/ai_classified.json" <<'PY'
 import json, sys
 a = json.load(open(sys.argv[1]))
 a[sorted(a)[0]]["reason"] = "old"
-a["appsong"] = {"style": "Soft", "distortion": "none", "confidence": "high", "reason": "from the app", "song_key": "AppSong"}
+a["appsong"] = {"style": "Soft", "confidence": "high", "reason": "from the app", "song_key": "AppSong"}
 json.dump(a, open(sys.argv[1], "w"))
 PY
 cp "$DATA/ai_classified.json" "$DATA/classified.before"

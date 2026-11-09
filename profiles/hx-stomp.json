@@ -1,6 +1,6 @@
 {
   "name": "HX Stomp",
-  "comment": "A preset per style, a snapshot per category, CC 20 lifts Lead, CC 21-25 switch the song's effects. Setup: docs/device-profiles.md.",
+  "comment": "A preset per style, a snapshot per category, CC 20 lifts Lead and CC 38 pushes its drive pedal, CC 21-25 switch the song's effects. Setup: docs/device-profiles.md.",
   "destination": "HX Stomp",
   "channel": 1,
   "song_load": {
@@ -9,10 +9,11 @@
     "Metal":        [{"pc": 2}, {"wait_ms": 500}]
   },
   "category": {
-    "Clean":  [{"cc": 69, "value": 0}, {"cc": 20, "value": 0}],
-    "Crunch": [{"cc": 69, "value": 1}, {"cc": 20, "value": 0}],
-    "Heavy":  [{"cc": 69, "value": 2}, {"cc": 20, "value": 0}],
-    "Lead":   [{"cc": 69, "value": 2}, {"cc": 20, "value": 127}]
+    "Clean":      [{"cc": 69, "value": 0}, {"cc": 20, "value": 0}, {"cc": 38, "value": 0}],
+    "Crunch":     [{"cc": 69, "value": 1}, {"cc": 20, "value": 0}, {"cc": 38, "value": 0}],
+    "Heavy":      [{"cc": 69, "value": 2}, {"cc": 20, "value": 0}, {"cc": 38, "value": 0}],
+    "Lead":       [{"cc": 69, "value": 2}, {"cc": 20, "value": 127}, {"cc": 38, "value": 127}],
+    "Lead clean": [{"cc": 69, "value": 0}, {"cc": 20, "value": 127}, {"cc": 38, "value": 0}]
   },
   "effects": {
     "chorus": 21, "flanger": 21,
@@ -20,5 +21,6 @@
     "tremolo": 23,
     "delay": 24,
     "reverb": 25
-  }
+  },
+  "add_delay": {"Lead crunch": {"beats": 0.75, "mix": 20, "feedback": 20}, "Lead heavy": {"beats": 0.75, "mix": 20, "feedback": 20}}
 }

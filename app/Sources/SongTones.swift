@@ -23,8 +23,8 @@ import Foundation
 ///                                     "mix": 30, "feedback": 20}}}, ...]}
 ///
 /// Delay kinds: tape, analog, modulated, digital. Modulation kinds: chorus, flanger, phaser,
-/// tremolo, vibe. "drive" is how distorted the tone should sound, 0-1, for the record and its
-/// category (Rig.corrected); "amp" is the tone's amp as the song sets it, and "main_amp" the amp
+/// tremolo, vibe. "drive" is how distorted the tone should sound, 0-1: its gear's, kept in its
+/// category's band (Rig.corrected); "amp" is the tone's amp as the song sets it, and "main_amp" the amp
 /// the arrangement plays longest.
 struct SongTones {
     static let defaultFirstProgram = 8
@@ -65,9 +65,8 @@ struct SongTones {
 
     /// Describes the tones of `arrangement` from the song's arrangements as read from its archive.
     /// `category` maps a slot and tone key to the tone's category, `style` a heaviness to a style.
-    /// `gainOffset` is the AI's correction for the song, in drive bands.
     static func make(song: String, artist: String, arrangement name: String, from arrangements: [Rig.Arrangement],
-                     firstProgram: Int = defaultFirstProgram, gainOffset: Double = 0,
+                     firstProgram: Int = defaultFirstProgram,
                      category: (_ slot: String, _ key: String) -> Category, style: (Double?) -> String) -> SongTones? {
         guard let a = arrangements.first(where: { $0.name.lowercased() == name.lowercased() }) else { return nil }
         let slots = ["Base", "A", "B", "C", "D"]
@@ -75,7 +74,7 @@ struct SongTones {
             let slot = a.slots.firstIndex { $0.lowercased() == entry.key.lowercased() }.map { slots[$0] } ?? "Base"
             let c = category(slot, entry.key)
             guard let t = Rig.tone(a, key: entry.key) else { return Tone(key: entry.key, category: c, effects: Rig.Effects()) }
-            let drive = Rig.drive(t).map { Rig.corrected($0, offset: gainOffset, category: c) }
+            let drive = Rig.drive(t).map { Rig.corrected($0, category: c) }
             var values = Rig.values(t)
             values["drive"] = drive
             return Tone(key: entry.key, category: c, effects: Rig.effects(t), drive: drive, amp: t.gear["Amp"], values: values)

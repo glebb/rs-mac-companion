@@ -1,16 +1,7 @@
 """Tone -> preset mapping shared by rstone.py and make_catalog.py.
 
-The rules live in presets.json in the data folder (seeded from presets.default.json). Where
-presets.json's "artists" has nothing for a tone's category, an AI model may change it (reason "AI"):
-the song's own answer in ai_classified.json, or for a song without one, the artist-wide "artists" in
-ai_suggestions.json. Songs listed in presets.json's "ai_rejected" get neither. As Presets.swift.
-
-An answer's "gain_offset" (experimental; written by classify_songs.py) is how many drive bands
-hotter the Rocksmith tones are than the record (1 band = 1/3 of rig.drive's 0-1 scale). When it is
-present, each tone's measured drive is shifted down by offset/3, rebanded, and the rules' category
-is moved by the per-tone band delta (reason "AI offset ..."). This keeps the differences between a
-song's parts while correcting the whole song's bias. An answer without it falls back to the older
-all-or-nothing swap ("crunch" turns Heavy into Crunch, "heavy" Crunch into Heavy)."""
+The rules live in presets.json in the data folder (seeded from presets.default.json). An AI model
+doesn't change them: in the app it only names a song's style. As Presets.swift."""
 import json
 import os
 import re
@@ -19,8 +10,6 @@ import paths
 import rig
 
 CATEGORIES = ["Clean", "Crunch", "Heavy", "Lead"]
-# The categories that a drive band maps to, ordered by gain, for the AI gain_offset shift.
-DRIVE_CATEGORIES = ["Clean", "Crunch", "Heavy"]
 # Preset names used before categories existed, for files without a "categories" section.
 BUILTIN_CATEGORIES = {"distortion": "Heavy", "acoustic": "Clean", "bass": "Clean", "bass drive": "Crunch"}
 
@@ -32,46 +21,18 @@ def amp_name(amp):
 
 
 class Presets:
-    def __init__(self, path=paths.PRESETS, ai_path=paths.AI_SUGGESTIONS, answers_path=paths.AI_CLASSIFIED):
-        """ai_path None leaves out the AI (suggestions and answers): what the rules alone pick."""
+    def __init__(self, path=paths.PRESETS):
         self.path, self.mtime, self.data = path, 0, {}
-        self.ai_path, self.ai_mtime, self.ai = ai_path, 0, {}
-        self.answers_path = answers_path if ai_path else None
-        self.answers_mtime, self.answers = 0, {}
         self.reload()
 
-    @staticmethod
-    def _read(path, mtime, current):
-        """(data, mtime) of an optional JSON file: as before if unchanged, empty if gone."""
-        try:
-            m = os.path.getmtime(path)
-            return (json.load(open(path)), m) if m != mtime else (current, mtime)
-        except OSError:
-            return {}, 0
-        except ValueError:
-            return current, mtime
-
     def reload(self):
-        """Re-read presets.json and the AI suggestions if they changed, so mappings can be tuned
-        while playing."""
+        """Re-read presets.json if it changed, so mappings can be tuned while playing."""
         try:
             m = os.path.getmtime(self.path)
             if m != self.mtime:
                 self.data, self.mtime = json.load(open(self.path)), m
         except (OSError, ValueError):
             pass
-        if self.ai_path:
-            self.ai, self.ai_mtime = self._read(self.ai_path, self.ai_mtime, self.ai)
-        if self.answers_path:
-            self.answers, self.answers_mtime = self._read(self.answers_path, self.answers_mtime, self.answers)
-
-    def answer(self, song_key):
-        """The AI model's answer for a song key ({"style", "distortion", ...}), unless a guess."""
-        a = self.answers.get(song_key.lower())
-        return a if isinstance(a, dict) and a.get("confidence") != "low" else None
-
-    def rejected(self, song_key):
-        return song_key.lower() in {k.lower() for k in self.data.get("ai_rejected", [])}
 
     def category(self, preset):
         """The category (Clean, Crunch, Heavy, Lead) a preset name means."""
@@ -99,41 +60,7 @@ class Presets:
         new = self._remap(d, artist, preset)
         if new:
             return new, f"{why}, artist {(artist or '').strip()}"
-        song_key = arrangement.rsplit("_", 1)[0]
-        if not self.ai_path or self.rejected(song_key):
-            return preset, why
-        answer = self.answer(song_key)
-        if answer:
-            return self._apply_answer(preset, why, answer, drive)
-        new = self._remap(self.ai, artist, preset)
-        return (new, f"{why}, AI") if new else (preset, why)
-
-    def _apply_answer(self, preset, why, answer, drive):
-        """How a song's own answer changes the rules' (preset, reason): the gain_offset shift when
-        the answer has one and the tone's drive is known, else the older crunch/heavy swap."""
-        c = self.category(preset)
-        offset = answer.get("gain_offset")
-        if isinstance(offset, (int, float)) and not isinstance(offset, bool) and drive is not None:
-            shifted = self._shift(c, drive, offset)
-            return (shifted, f"{why}, AI offset {offset:+g}") if shifted != c else (preset, why)
-        if answer.get("distortion") == "crunch" and c == "Heavy":
-            return "Crunch", f"{why}, AI"
-        if answer.get("distortion") == "heavy" and c == "Crunch":
-            return "Heavy", f"{why}, AI"
         return preset, why
-
-    @staticmethod
-    def _shift(category, drive, offset):
-        """The category after shifting a distorted tone by the song's gain_offset (in drive bands):
-        reband the tone's drive lowered by offset/3 and move the category by that band delta. Only
-        Clean/Crunch/Heavy move; Lead and the like are left alone."""
-        if category not in DRIVE_CATEGORIES:
-            return category
-        bands = ["clean", "crunch", "heavy"]
-        orig = rig.band(drive)
-        adjusted = min(max(drive - offset / 3.0, 0.0), 1.0)
-        delta = bands.index(rig.band(adjusted)) - bands.index(orig)
-        return DRIVE_CATEGORIES[min(max(DRIVE_CATEGORIES.index(category) + delta, 0), 2)]
 
     def _remap(self, source, artist, preset):
         """What an "artists" section maps the preset (or its category) to for this artist, if anything."""

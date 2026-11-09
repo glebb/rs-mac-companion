@@ -1,23 +1,20 @@
 #!/usr/bin/env python3
-"""Experimental: ask an OpenAI model what each song in the index is (its style: Soft, Classic rock,
-Metal, ...) and whether its distorted tones should be Crunch or Heavy. RS Companion (which can ask
-about each new song itself, AIClassifier.swift) and presets.py use the answers between the rules
-and your own entries in presets.json, which stays as it is.
+"""Experimental: ask an OpenAI model what style each song in the index is (Soft, Classic rock, Metal,
+...). RS Companion (which can ask about each new song itself, AIClassifier.swift) uses the answers
+between the rules and your own "song_styles" in presets.json, which stays as it is. The answers don't
+change how distorted a tone is: the song's gear and your overrides decide that.
 
 The model gets what the rules already know (tuning, tempo, heaviness, the style and categories the
-rules pick, the amps) plus the artist and title, and corrects the rules from what the records
-sound like: Rocksmith tones often have more gain than the song, so a Bon Jovi song comes out Heavy
-where Crunch fits.
+rules pick, the amps) plus the artist and title, and corrects the rules' style from what the records
+sound like.
 
 Writes to the data folder (see paths.py):
   ai_classified.json   the model's answer per song key (shared with RS Companion), so later runs
                        only ask about new songs; each song's own answer is used for it
-  ai_suggestions.json  "song_styles" and "artists" entries in presets.json's format where the
-                       model disagrees with the rules, used for songs without an answer (e.g. a
-                       new song by a band it knows), plus "_songs": one row per disagreement with
-                       the model's reason, for review. Your own song_styles and artists in
-                       presets.json win over both.
-The rules are compared without the current suggestions, so a run never mistakes them for the rules.
+  ai_suggestions.json  "song_styles" entries in presets.json's format where the model disagrees with
+                       the rules, used for songs without an answer (e.g. a new song by a band it
+                       knows), plus "_songs": one row per disagreement with the model's reason, for
+                       review. Your own song_styles in presets.json win over both.
 
 Sends artist names, song titles and the numbers above to the OpenAI API. Needs the openai
 package (pip install openai) and an API key in OPENAI_API_KEY.
@@ -47,17 +44,6 @@ sounds, using the measurements as a hint.
 
 For each song answer:
 - style: the one of the given styles that fits the recording best.
-- distortion: how the song's distorted guitar parts sound on the record. "crunch" is edge-of- \
-breakup to classic rock overdrive (AC/DC, Bon Jovi, Led Zeppelin, most 60s-80s rock); "heavy" is \
-high-gain distortion (metal, hard rock with saturated rhythm tones, grunge with fuzz). Use "none" \
-only when the song has no distorted guitar at all.
-- gain_offset: how much hotter the Rocksmith tones are than the record's distorted guitars, in \
-steps the width of the gap between clean, crunch and heavy. 0 means they match the record. 1 means \
-about one step too hot (a Rocksmith "heavy" rhythm that is really crunch on the record, or a \
-"crunch" that is really clean); 2 means two steps. Use a small negative (down to -1) only when the \
-record is heavier than the Rocksmith tones. Give the song's overall bias as one number: it is \
-applied to every distorted tone, so the differences between the song's parts (clean intro, rhythm, \
-solo) are kept.
 - confidence: "high" when you know the recording, "medium" when you know the artist's sound but \
 not this song, "low" when you are guessing from the measurements.
 - reason: at most 12 words.
@@ -136,12 +122,10 @@ def schema(style_names):
         "properties": {
             "song_key": {"type": "string"},
             "style": {"type": "string", "enum": style_names},
-            "distortion": {"type": "string", "enum": ["crunch", "heavy", "none"]},
-            "gain_offset": {"type": "number"},
             "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
             "reason": {"type": "string"},
         },
-        "required": ["song_key", "style", "distortion", "gain_offset", "confidence", "reason"],
+        "required": ["song_key", "style", "confidence", "reason"],
         "additionalProperties": False,
     }
     return {"type": "object", "properties": {"songs": {"type": "array", "items": item}},
@@ -177,19 +161,15 @@ def classify(client, model, batch, style_names):
 
 
 def suggest(songs, answers):
-    """presets.json entries where the model disagrees with the rules.
-
-    Styles: an artist entry when all of the artist's answered songs agree on one style that differs
-    from the rules for at least one of them; otherwise one entry per song that differs.
-    Distortion: the artists section remaps a category for the whole band, so Heavy -> Crunch when
-    the model says crunch for every song of the artist whose tones the rules put in Heavy (and
-    Crunch -> Heavy the other way round). Low-confidence answers are left out of both."""
+    """presets.json "song_styles" where the model disagrees with the rules: an artist entry when all
+    of the artist's answered songs agree on one style that differs from the rules for at least one of
+    them; otherwise one entry per song that differs. Low-confidence answers are left out."""
     by_artist = collections.defaultdict(list)
     for key, s in songs.items():
         a = answers.get(key)
         if a and a["confidence"] != "low":
             by_artist[s["artist"]].append((s, a))
-    song_styles, artists, rows = {}, {}, []
+    song_styles, rows = {}, []
     for artist, pairs in sorted(by_artist.items(), key=lambda kv: kv[0].lower()):
         differs = [(s, a) for s, a in pairs if a["style"].lower() != s["rule_style"].lower()]
         voted = {a["style"] for _, a in pairs}
@@ -198,24 +178,11 @@ def suggest(songs, answers):
         else:
             for s, a in differs:
                 song_styles[s["song_key"]] = a["style"]
-        to_crunch = [(s, a) for s, a in pairs if s["rule_categories"].get("Heavy")]
-        to_heavy = [(s, a) for s, a in pairs if s["rule_categories"].get("Crunch")]
-        remap = {}
-        if to_crunch and all(a["distortion"] == "crunch" for _, a in to_crunch):
-            remap["Heavy"] = "Crunch"
-        if to_heavy and all(a["distortion"] == "heavy" for _, a in to_heavy):
-            remap["Crunch"] = "Heavy"
-        if remap:
-            artists[artist] = remap
-        for s, a in pairs:
-            style_change = a["style"].lower() != s["rule_style"].lower()
-            drive_change = any(s["rule_categories"].get(c) for c in remap)
-            if style_change or drive_change:
-                rows.append({"song_key": s["song_key"], "artist": artist, "song": s["song"],
-                             "rule_style": s["rule_style"], "ai_style": a["style"],
-                             "rule_categories": s["rule_categories"], "ai_distortion": a["distortion"],
-                             "confidence": a["confidence"], "reason": a["reason"]})
-    return song_styles, artists, rows
+        for s, a in differs:
+            rows.append({"song_key": s["song_key"], "artist": artist, "song": s["song"],
+                         "rule_style": s["rule_style"], "ai_style": a["style"],
+                         "confidence": a["confidence"], "reason": a["reason"]})
+    return song_styles, rows
 
 
 def read_json(path):
@@ -246,7 +213,7 @@ def main():
     args = p.parse_args()
 
     paths.ensure_data_dir()
-    presets = Presets(ai_path=None)  # the rules alone
+    presets = Presets()
     songs = songs_from_index(presets)
     answers = read_json(CLASSIFIED)
     todo = [s for k, s in sorted(songs.items()) if args.redo or k not in answers][:args.limit]
@@ -269,13 +236,13 @@ def main():
             answers = {**read_json(CLASSIFIED), **new}
             write_json(CLASSIFIED, answers, indent=1, sort_keys=True)
 
-    song_styles, artists, rows = suggest(songs, answers)
+    song_styles, rows = suggest(songs, answers)
     write_json(paths.AI_SUGGESTIONS,
-               {"_help": ["Suggestions from classify_songs.py where the model disagrees with the rules.",
-                          "song_styles and artists use presets.json's format and count after your own entries",
-                          "there (reason 'AI'). _songs says why, per song. Delete this file to turn them off."],
-                "song_styles": song_styles, "artists": artists, "_songs": rows}, indent=2)
-    print(f"{sum(k in answers for k in songs)} of {len(songs)} songs answered; {len(song_styles)} style and {len(artists)} artist "
+               {"_help": ["Suggestions from classify_songs.py where the model disagrees with the rules' style.",
+                          "song_styles uses presets.json's format and counts after your own entries there.",
+                          "_songs says why, per song. Delete this file to turn them off."],
+                "song_styles": song_styles, "_songs": rows}, indent=2)
+    print(f"{sum(k in answers for k in songs)} of {len(songs)} songs answered; {len(song_styles)} style "
           f"suggestions in {paths.AI_SUGGESTIONS}")
 
 

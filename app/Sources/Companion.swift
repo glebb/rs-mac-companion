@@ -23,7 +23,7 @@ struct AIVerdict: Equatable {
         case rejected               // you rejected its answer for this song
     }
     let state: State
-    var changes: [String] = []      // what it changes here: "dist: Heavy → Crunch", "style: Soft → Classic rock"
+    var changes: [String] = []      // what it changes here: "style: Soft → Classic rock"
 }
 
 /// Receives the dylib's events, keeps the current song and tone, maps tones to categories with
@@ -308,8 +308,12 @@ final class Companion: ObservableObject {
         if new.aiClassify { classifyIfNeeded() }
     }
 
-    /// What a category sends, for the window.
-    func label(for category: Category) -> String { Profile.label(profile.category[category.rawValue]) }
+    /// What a tone's category sends, for the window: its band's steps ("Lead clean") when the song's
+    /// data gives the tone's drive.
+    func label(for row: ToneRow) -> String {
+        let drive = madeTones?.tones.first { $0.key.lowercased() == row.key.lowercased() }?.drive
+        return Profile.label(profile.categorySteps(row.category, drive: drive))
+    }
 
     /// Picks up the chosen profile and edits to its file, and notices its destination come and
     /// go. While the file can't be used, the last good version stays in use.
@@ -380,12 +384,10 @@ final class Companion: ObservableObject {
 
     // MARK: AI
 
-    /// Keeps what the AI model changed for this song as your own: its tones' categories as
-    /// overrides (in every part that uses them) and its style in "song_styles".
+    /// Keeps the AI model's style for this song as your own, in "song_styles".
     func acceptAI() {
         guard case .answered = ai?.state else { return }
         let key = Presets.songKey(arrangement)
-        for row in tones where row.reason.hasSuffix(", AI") { setOverride(row, to: row.category) }
         let heaviness = Rig.heaviness(rigArrangements)
         let style = presets.style(heaviness: heaviness, artist: artist, songKey: key)
         if style != presets.style(heaviness: heaviness, artist: artist, songKey: key, ai: false) {
@@ -429,14 +431,9 @@ final class Companion: ObservableObject {
         }
     }
 
-    /// What the AI changes for this song: tones it maps differently, and the style.
+    /// What the AI changes for this song: only ever the style.
     private func aiChanges(_ key: String) -> [String] {
         var out: [String] = []
-        for row in tones where row.reason.hasSuffix(", AI") {
-            let t = songTones.first { $0.slot == row.slot } ?? gameTone(slot: row.slot, key: row.key)
-            let change = "\(row.key): \(match(t, ai: false).category.name) → \(row.category.name)"
-            if !out.contains(change) { out.append(change) }  // a tone in several slots
-        }
         let heaviness = Rig.heaviness(rigArrangements)
         let style = presets.style(heaviness: heaviness, artist: artist, songKey: key)
         let ruled = presets.style(heaviness: heaviness, artist: artist, songKey: key, ai: false)
@@ -461,7 +458,7 @@ final class Companion: ObservableObject {
                 let answer = try await AIClassifier.classify(song, styles: styles, model: model, key: apiKey)
                 AIClassifier.save(answer, songKey: key, to: path)
                 asking.remove(key)
-                record("AI: \(key) \(answer["style"] as? String ?? "?"), \(answer["distortion"] as? String ?? "?") "
+                record("AI: \(key) \(answer["style"] as? String ?? "?") "
                     + "(\(answer["confidence"] as? String ?? "?")): \(answer["reason"] as? String ?? "")")
                 presets.reload()
                 remap(reason: "AI answer")
@@ -487,7 +484,7 @@ final class Companion: ObservableObject {
                 let m = presets.match(arrangement: a.name, slot: slotNames[i],
                                       tone: Presets.Tone(key: toneKey, descriptors: t.descriptors, amp: amp,
                                                          gain: t.gear["Amp"]?.knob("Gain"), drive: Rig.drive(t)),
-                                      artist: artist, ai: false)
+                                      artist: artist)
                 categories[m.category.name, default: 0] += 1
                 if let amp {
                     let name = amp.hasPrefix("Amp_") ? String(amp.dropFirst(4)) : amp
@@ -640,10 +637,6 @@ final class Companion: ObservableObject {
     /// When the profile uses them, reads the song's tones from its archive (once per arrangement;
     /// again when the mapping changes), and runs the profile's song load sequence.
     private func makeSongTones(force: Bool = false) {
-        if !arrangement.isEmpty {
-            let offset = presets.gainOffset(Presets.songKey(arrangement))
-            if ToneHost.send(offset: offset), offset != 0 { record("tonehost: gain offset \(offset)") }
-        }
         guard profile.needsSongData, let song, !arrangement.isEmpty, !archive.isEmpty else {
             if !profile.needsSongData { madeTones = nil }
             return
@@ -657,7 +650,6 @@ final class Companion: ObservableObject {
         guard !rigArrangements.isEmpty,
               var made = SongTones.make(song: song, artist: artist, arrangement: arrangement, from: rigArrangements,
                                         firstProgram: profile.toneFirstProgram ?? SongTones.defaultFirstProgram,
-                                        gainOffset: presets.gainOffset(Presets.songKey(arrangement)),
                                         category: { slot, key in
                                             self.match(self.gameTone(slot: slot, key: key)).category
                                         },
@@ -734,11 +726,11 @@ final class Companion: ObservableObject {
         send(reason: "\(a.tone) (\(reason))")
     }
 
-    private func match(_ t: GameEvent.Tone, overrides: Bool = true, ai: Bool = true) -> Presets.Match {
+    private func match(_ t: GameEvent.Tone, overrides: Bool = true) -> Presets.Match {
         presets.match(arrangement: arrangement, slot: t.slot,
                       tone: Presets.Tone(key: t.tone, descriptors: t.descriptors, amp: t.amp, gain: t.gain,
                                          drive: toneDrives[t.tone.lowercased()]),
-                      artist: artist, overrides: overrides, ai: ai)
+                      artist: artist, overrides: overrides)
     }
 
     /// What plays the active tone, by the profile.
@@ -748,7 +740,8 @@ final class Companion: ObservableObject {
         let kinds = index.flatMap { madeTones?.tones[$0].effects.kinds } ?? []
         let values = index.flatMap { madeTones?.tones[$0].values } ?? [:]
         let songTone = index != nil && profile.toneFirstProgram != nil
-        return (profile.toneSteps(category: category, toneIndex: index, effectKinds: kinds, knobValues: values),
+        return (profile.toneSteps(category: category, toneIndex: index, effectKinds: kinds, knobValues: values,
+                                  tempo: madeTones?.tempo, amp: madeTones.flatMap { profile.songAmp($0.amps) }),
                 songTone ? "song tone, \(category.name)" : category.name)
     }
 

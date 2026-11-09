@@ -1,12 +1,16 @@
-// Measures Helix Native's amps with no window and no audio device: the Stomp has the same models, and can't be
-// measured without a guitar. For each template in rs-tonehost's config, for each amp Drive from 0 to 1, a low plucked
-// string goes through at several levels (tonehost's own probe), and the level it comes out at is printed:
-//   amp drive out_at_-60 out_at_-48 ... out_at_-6
-// An amp follows the input while it's clean, and stops following as it saturates: calibrate_stomp.py reads how far
-// below a guitar's level that starts.
+// Measures Helix Native with no window and no audio device: the Stomp has the same models, and can't be measured without
+// a guitar. Each job loads a saved state of rs-tonehost (a preset with an amp, its cab and the pedals), sets parameters,
+// and plays a low plucked string through it, tonehost's own probe: one pluck after the chain settles. It prints the level
+// that comes out, at each input level, or at one with --at:
+//   LABEL out_at_-60 out_at_-54 ... out_at_-6
+// or "LABEL failed" for a job whose state Native can't load.
+// An amp follows the input while it's clean, and stops following as it saturates. tools/calibrate_stomp.py writes the
+// jobs and reads the levels.
 // Run it with the network guard, as tonehost/helix/setup.sh runs Helix; tools/calibrate_stomp.py does.
 //   clang -fobjc-arc tools/measure_helix.m -framework Foundation -framework AudioToolbox -o build/measure_helix
-//   measure_helix CONFIG [--paced] [AMP ...]
+//   measure_helix [--paced] [--at DB] < JOBS
+// A job is a line: LABEL<TAB>STATE<TAB>param=value param=value ...; Audio Unit parameters, as tonehost's config numbers
+// them. Jobs on the same state in a row load it once.
 #import <Foundation/Foundation.h>
 #import <AudioToolbox/AudioToolbox.h>
 #include <math.h>
@@ -52,12 +56,10 @@ static double measure(double db) {
 }
 
 int main(int argc, char **argv) { @autoreleasepool {
-  if (argc < 2) return 1;
-  NSString *config = [NSString stringWithUTF8String:argv[1]];
-  NSDictionary *templates = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:config] options:0 error:NULL][@"templates"];
-  NSMutableArray *only = [NSMutableArray array];
-  for (int i = 2; i < argc; i++) {
-    if (!strcmp(argv[i], "--paced")) paced = 1; else [only addObject:[NSString stringWithUTF8String:argv[i]]];
+  int at = 0, one = 0;
+  for (int i = 1; i < argc; i++) {
+    if (!strcmp(argv[i], "--paced")) paced = 1;
+    else if (!strcmp(argv[i], "--at") && i + 1 < argc) at = atoi(argv[++i]), one = 1;
   }
   AudioComponentDescription d = {'aumf', '6HPA', 'LSIX', 0, 0};
   AudioComponent c = AudioComponentFindNext(NULL, &d);
@@ -71,29 +73,38 @@ int main(int argc, char **argv) { @autoreleasepool {
   AudioUnitSetProperty(u, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &r, sizeof r);
   if (AudioUnitInitialize(u)) return 3;
   run(0.5, 0);
-  NSString *dir = config.stringByDeletingLastPathComponent;
-  for (NSString *amp in [templates.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
-    if (only.count && ![only containsObject:amp]) continue;
-    NSDictionary *t = templates[amp];
-    NSData *data = [NSData dataWithContentsOfFile:[dir stringByAppendingPathComponent:t[@"state"]]];
-    CFPropertyListRef p = (__bridge_retained CFPropertyListRef)[NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:NULL];
-    if (!p || AudioUnitSetProperty(u, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0, &p, sizeof p)) { printf("%s failed\n", amp.UTF8String); continue; }
-    peak = 0;
-    run(0.3, 0);
-    AudioUnitSetParameter(u, 32, kAudioUnitScope_Global, 0, 0.f, 0);   // Master Input and Output at 0 dB
-    AudioUnitSetParameter(u, 33, kAudioUnitScope_Global, 0, 0.f, 0);
-    for (int k = 1; k <= 4; k++) {     // the amp's tone knobs at Line 6's defaults
-      NSNumber *v = t[@"params"][[NSString stringWithFormat:@"%d", k]];
-      if (v) AudioUnitSetParameter(u, k, kAudioUnitScope_Global, 0, v.floatValue, 0);
+  char line[8192];
+  NSString *loaded = nil;
+  while (fgets(line, sizeof line, stdin)) {
+    NSArray *parts = [[[NSString stringWithUTF8String:line] stringByTrimmingCharactersInSet:NSCharacterSet.newlineCharacterSet]
+                      componentsSeparatedByString:@"\t"];
+    if (parts.count < 2) continue;
+    NSString *label = parts[0], *state = parts[1];
+    if (![state isEqual:loaded]) {
+      NSData *data = [NSData dataWithContentsOfFile:state];
+      CFPropertyListRef p = data ? (__bridge_retained CFPropertyListRef)[NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:NULL] : NULL;
+      OSStatus set = p ? AudioUnitSetProperty(u, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0, &p, sizeof p) : -1;
+      if (p) CFRelease(p);   // the unit has taken what it needs: one state per amp would leak otherwise
+      if (set) {
+        printf("%s failed\n", label.UTF8String);
+        fflush(stdout);
+        loaded = nil;
+        continue;
+      }
+      loaded = state;
+      peak = 0;
+      run(1.5, 0);    // a state takes a while to load: measured sooner, the first job hears the state's own settings
     }
-    static const float drives[] = {0, .025, .05, .075, .1, .15, .2, .25, .3, .4, .5, .6, .7, .8, .9, 1};
-    for (int s = 0; s < sizeof drives / sizeof *drives; s++) {
-      AudioUnitSetParameter(u, 0, kAudioUnitScope_Global, 0, drives[s], 0);
-      printf("%s %.3f", amp.UTF8String, drives[s]);
-      for (int db = -60; db <= -6; db += 6) printf(" %.2f", measure(db));
-      printf("\n");
-      fflush(stdout);
-    }
+    if (parts.count > 2)  // a knob's value from a state isn't reported: a job sets every one it relies on
+      for (NSString *kv in [parts[2] componentsSeparatedByString:@" "]) {
+        NSArray *a = [kv componentsSeparatedByString:@"="];
+        if (a.count == 2) AudioUnitSetParameter(u, [a[0] intValue], kAudioUnitScope_Global, 0, [a[1] floatValue], 0);
+      }
+    printf("%s", label.UTF8String);
+    if (one) printf(" %.2f", measure(at));
+    else for (int db = -60; db <= -6; db += 6) printf(" %.2f", measure(db));
+    printf("\n");
+    fflush(stdout);
   }
   _exit(0);
 }}

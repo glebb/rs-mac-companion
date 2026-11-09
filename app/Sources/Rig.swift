@@ -115,15 +115,13 @@ enum Rig {
         return d < 1.0 / 3 ? "clean" : d < 2.0 / 3 ? "crunch" : "heavy"
     }
 
-    /// A tone's drive for the record and its category. The AI's gain_offset moves a distorted tone
-    /// by offset/3, as Presets.shift does (clean tones stay put, so the song's parts stay apart), and
-    /// the category has the last word: whatever put a tone in Clean, Crunch or Heavy, a setting or an
-    /// override, its drive stays in that band. Lead has no band.
-    static func corrected(_ drive: Double, offset: Double, category: Category) -> Double {
-        let shifted = drive < 1.0 / 3 ? drive : min(max(drive - offset / 3, 0), 1)
-        guard category != .lead else { return shifted }
+    /// A tone's drive for its category, which has the last word: whatever put a tone in Clean,
+    /// Crunch or Heavy, a rule or an override, its drive stays in that band. Lead has no band.
+    /// A band's top is where the next one starts, so a drive stops just below it, and band() agrees.
+    static func corrected(_ drive: Double, category: Category) -> Double {
+        guard category != .lead else { return min(max(drive, 0), 1) }
         let low = Double(category.rawValue) / 3
-        return min(max(shifted, low), low + 1.0 / 3)
+        return min(max(drive, low), category == .heavy ? 1 : (low + 1.0 / 3).nextDown)
     }
 
     // MARK: Effects
@@ -131,13 +129,24 @@ enum Rig {
     struct Delay { let key: String; let time: Double?; let mix: Double?; let feedback: Double? }
     struct Reverb { let key: String; let mix: Double? }
     struct Modulation { let kind: String; let key: String; let mix: Double?; let rate: Double? }
+    struct Pedal { let key: String; let gain: Double?; let tone: Double? }
     struct Effects {
         var delay: Delay?; var reverb: Reverb?; var mod: Modulation?
-        /// What a device profile switches: delay, reverb and the modulation's kind.
+        var overdrive: Pedal?; var distortion: Pedal?
+        /// What a device profile switches: delay, reverb, the modulation's kind, and the drive pedals.
         var kinds: Set<String> {
-            Set((delay != nil ? ["delay"] : []) + (reverb != nil ? ["reverb"] : []) + (mod.map { [$0.kind] } ?? []))
+            Set((delay != nil ? ["delay"] : []) + (reverb != nil ? ["reverb"] : []) + (mod.map { [$0.kind] } ?? [])
+                + (overdrive != nil ? ["overdrive"] : []) + (distortion != nil ? ["distortion"] : []))
         }
     }
+
+    /// The drive pedals a device can play with its own, as rs-tonehost does (rearmed-mods, tonehost/helix/gear.json):
+    /// boosts and overdrives, and distortion, metal and fuzz pedals. A key starting with one counts.
+    static let overdrivePedals = ["Pedal_CustomDrive", "Pedal_GermaniumDrive", "Pedal_LineDrive", "Pedal_MarshallGuvnorPlus",
+                                  "Pedal_RangeBooster", "Pedal_SuperDrive", "Bass_Pedal_BassOverdrive"]
+    static let distortionPedalKeys = ["Pedal_Distortion", "Pedal_MetalDistortion", "Pedal_ShredZone", "Pedal_VintageDistortion",
+                                      "Bass_Pedal_BassDistortion", "Pedal_BuzzOne", "Pedal_BuzzToo", "Pedal_CaptFuzzle",
+                                      "Pedal_FuzzWasHe", "Bass_Pedal_BassFuzz"]
 
     /// Modulation by words in the gear key, first match wins.
     static let modulation: [(word: String, kind: String)] = [
@@ -146,14 +155,21 @@ enum Rig {
     ]
     static let reverbs = ["Verb", "Spring", "Chamber", "Plate"]
 
-    /// The tone's delay, reverb and modulation, each the one with the most mix if it has several.
+    /// The tone's delay, reverb and modulation, each the one with the most mix if it has several, and its
+    /// drive pedals, each the one with the most gain.
     static func effects(_ tone: Tone) -> Effects {
         var fx = Effects()
         // Ties go to the first in slot order, as in rig.py.
         func more(_ mix: Double?, than kept: Double??) -> Bool { kept == nil || (mix ?? 0) > ((kept ?? nil) ?? 0) }
+        func louder(_ p: Pedal, than kept: Pedal?) -> Bool { kept.map { (p.gain ?? 0) > ($0.gain ?? 0) } ?? true }
         for (slot, item) in tone.gear.sorted(by: { $0.key < $1.key }) where slot != "Amp" && slot != "Cabinet" {
             let mix = item.knobs["Mix"]
-            if item.knobs["Feedback"] != nil, let time = item.knob("Time", "TimeL") {
+            let pedal = Pedal(key: item.key, gain: item.knob("Gain", "Boost"), tone: item.knobs["Tone"])
+            if overdrivePedals.contains(where: item.key.hasPrefix) {
+                if louder(pedal, than: fx.overdrive) { fx.overdrive = pedal }
+            } else if distortionPedalKeys.contains(where: item.key.hasPrefix) {
+                if louder(pedal, than: fx.distortion) { fx.distortion = pedal }
+            } else if item.knobs["Feedback"] != nil, let time = item.knob("Time", "TimeL") {
                 if more(mix, than: fx.delay.map { $0.mix }) {
                     fx.delay = Delay(key: item.key, time: time, mix: mix, feedback: item.knobs["Feedback"])
                 }
@@ -177,6 +193,7 @@ enum Rig {
             "treble": amp?.knobs["Treble"], "presence": amp?.knobs["Pres"],
             "delay_time": fx.delay?.time, "delay_mix": fx.delay?.mix, "delay_feedback": fx.delay?.feedback,
             "reverb_mix": fx.reverb?.mix, "modulation_mix": fx.mod?.mix, "modulation_rate": fx.mod?.rate,
+            "overdrive_gain": fx.overdrive?.gain, "overdrive_tone": fx.overdrive?.tone, "distortion_gain": fx.distortion?.gain,
         ]
         return all.compactMapValues { $0 }
     }

@@ -4,11 +4,11 @@ import json
 import os
 from types import SimpleNamespace
 
-ANSWERS = {  # artist -> (style, distortion, confidence)
-    "Bon Jovi": ("Classic rock", "crunch", "high"),
-    "AC/DC": ("Classic rock", "crunch", "high"),
-    "Slayer": ("Metal", "heavy", "high"),
-    "Eagles": ("Soft", "none", "low"),
+ANSWERS = {  # artist -> (style, confidence)
+    "Bon Jovi": ("Classic rock", "high"),
+    "AC/DC": ("Classic rock", "high"),
+    "Slayer": ("Metal", "high"),
+    "Eagles": ("Soft", "low"),
 }
 
 
@@ -29,9 +29,8 @@ class _Responses:
             if len(parts) < 5:
                 continue
             artist = parts[1].split(" - ")[0]
-            style, distortion, confidence = ANSWERS.get(artist, ("Classic rock", "crunch", "low"))
-            songs.append({"song_key": parts[0], "style": style, "distortion": distortion,
-                          "confidence": confidence, "reason": "stub"})
+            style, confidence = ANSWERS.get(artist, ("Classic rock", "low"))
+            songs.append({"song_key": parts[0], "style": style, "confidence": confidence, "reason": "stub"})
         return SimpleNamespace(status="completed", incomplete_details=None,
                                output_text=json.dumps({"songs": songs}))
 

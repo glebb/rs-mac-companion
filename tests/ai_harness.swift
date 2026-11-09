@@ -24,7 +24,7 @@ struct Harness {
             print("error: \(error)")
         }
         p.reload()
-        print("answer: \(p.answer("bonjoviprayer").map { "\($0.style) \($0.distortion) \($0.confidence)" } ?? "none")")
+        print("answer: \(p.answer("bonjoviprayer").map { "\($0.style) \($0.confidence)" } ?? "none")")
         show("after", "bonjoviprayer_rhythm", "riff_dist")
         show("other song by artist (suggestions)", "bonjovirunaway_rhythm", "riff_dist")
         print("style: " + p.style(heaviness: 0.81, artist: "Bon Jovi", songKey: "bonjoviprayer"))

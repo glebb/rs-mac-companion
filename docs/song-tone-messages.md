@@ -34,8 +34,8 @@ category Program Changes, as described in the [README](../README.md#use).
   comes right after the message, so a receiver should either handle it once it's ready or
   play a fallback until then.
 - **Again for the same song**, if the profile has `song_load_again`, when the mapping in `presets.json` changes (a tone's category
-  can change), when an AI answer for the song arrives (its tones' categories and its style can
-  change, a few seconds after the first message), when the first program changes, or when RS
+  can change), when an AI answer for the song arrives (its style can change, a few seconds after
+  the first message), when the first program changes, or when RS
   Companion starts while a song is loaded.
 
 ## Version 2
@@ -83,7 +83,7 @@ plays them, so the first one is needed first.
 | `program` | 0–127 | the Program Change that plays this tone during the song |
 | `key` | text | Rocksmith's name for the tone, e.g. `skid18an_dist` |
 | `category` | Clean, Crunch, Heavy or Lead | what RS Companion maps the tone to (`presets.json`, overrides included). It's the same category the tone gets when it plays |
-| `drive` | 0–1, may be missing | how distorted the tone should sound, on any amp: the song's gear, corrected by its AI `gain_offset`, kept in the band of the tone's `category` ([Knobs](device-profiles.md#knobs)) |
+| `drive` | 0–1, may be missing | how distorted the tone should sound, on any amp: the song's gear, kept in the band of the tone's `category` ([Knobs](device-profiles.md#knobs)) |
 | `amp` | object, may be missing | the tone's amp as the song sets it: `gear` (e.g. `Amp_CA100`), and `gain`, `bass`, `mid`, `treble` and `presence` (0–100), each when the amp has it |
 | `effects` | object | the tone's time-based and modulation effects, as below. An effect that's missing means the tone doesn't have one |
 
