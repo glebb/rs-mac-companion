@@ -1,11 +1,13 @@
 // rscompanion (prototype): in-game dylib that reports Rocksmith 2014 tone changes in real time,
 // with no pre-built index and no special permissions.
 //
-// 1. Song: the libc file calls are interposed (dyld __interpose; in RS Re-ARMed, which loads the
-//    library from its mods folder by dlopen, the game image's import slots are pointed at them) to
-//    see which .psarc archives the game opens and where it reads. When the game reads an arrangement's .sng entry, a
-//    worker thread opens the same archive itself (rsfile.c) and reads every arrangement of that
-//    song: manifest (song, artist, tone slots, tone tags) and tone changes.
+// 1. Song: the libc file calls are interposed (dyld __interpose) to see which .psarc archives the
+//    game opens and where it reads. When the game reads an arrangement's .sng entry, a worker
+//    thread opens the same archive itself (rsfile.c) and reads every arrangement of that song:
+//    manifest (song, artist, tone slots, tone tags) and tone changes. In RS Re-ARMed, which loads
+//    the library from its mods folder by dlopen, a hook on the game's own file open sees the .sng
+//    instead, and the archive is the one the game has open with that entry (rc_init; before RS
+//    Re-ARMed 1.15 the game image's import slots, pointed at the file calls, saw the reads too).
 // 2. Arrangement: the selected one's description object exists twice in memory (the game keeps
 //    a working copy); found by its type pointer (game_profile.json's arrangement_vtable), and
 //    only names of the song just loaded count.
@@ -46,6 +48,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/param.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -245,7 +248,11 @@ static char g_lp_selected[128];      // Learn & Play: the arrangement the game o
 static unsigned g_lp_selected_gen;   // the g_song_gen of its song
 static void log_and_keep_song(song *s, const char *key, const char *path, double t, const char *selected);
 
+static int g_open_hook;       // RS Re-ARMed's FrontEnd_OpenFile hook is set
+static int g_sng_opens_seen;  // the open hook reports songs (RS Re-ARMed): file reads don't, so no song loads twice
+
 static void handle_read(const read_event *ev) {
+    if (g_sng_opens_seen) return;
     rs_psarc *p = archive(ev->path);
     if (!p) return;
     const rs_entry *e = rs_psarc_entry_at(p, (uint64_t)ev->off);
@@ -294,7 +301,10 @@ static void log_and_keep_song(song *s, const char *key, const char *path, double
     free(old);
 }
 
-// ---------------------------------------------------------------- Learn & Play: the opened .sng
+// ---------------------------------------------------------------- RS Re-ARMed: the opened .sng
+// Both editions' game opens a song's .sng through its own FrontEnd_OpenFile, which RS Re-ARMed lets a mod
+// hook by name. Learn & Play opens the one arrangement that's played; the Mac edition opens them all as the
+// song loads, so there the arrangement still comes from the memory scan.
 
 // The archive (dlc/, its folders, then the game folder) whose table of contents has `entry`.
 static int lp_find_archive(const char *dir, const char *entry, int depth, char *out, size_t outlen) {
@@ -319,27 +329,57 @@ static int lp_find_archive(const char *dir, const char *entry, int depth, char *
     return found;
 }
 
-static void handle_lp_sng(const char *name) {
+// The archive among those the game has open whose table of contents has `entry`: the game opens a song's
+// archive to load it, and a library can be thousands of archives.
+static int open_archive_with(const char *entry, char *out, size_t outlen) {
+    int max = getdtablesize();
+    char path[MAXPATHLEN];
+    for (int fd = 0; fd < max && fd < 16384; fd++) {
+        if (fcntl(fd, F_GETPATH, path) < 0 || !is_archive(path)) continue;
+        rs_psarc *p = rs_psarc_open(path);
+        int has = p && rs_psarc_find(p, entry);
+        rs_psarc_close(p);
+        if (!has) continue;
+        snprintf(out, outlen, "%s", path);
+        return 1;
+    }
+    return 0;
+}
+
+static void handle_opened_sng(const char *name) {
     static char last[128];
     static double last_at;
     size_t n = strlen(name);
     const char *us = strrchr(name, '_');
     if (!us || us == name || ends_with(name, "_vocals") || ends_with(name, "_jvocals")) return;
-    double t = now_s();
-    if (!strcmp(name, last) && t - last_at < 3) return;
-    snprintf(last, sizeof last, "%s", name);
-    last_at = t;
     char key[128], entry[300], path[1400] = "", dlc[1100];
     snprintf(key, sizeof key, "%.*s", (int)(us - name), name);
-    snprintf(entry, sizeof entry, "songs/bin/generic/%.*s.sng", (int)n, name);
+    double t = now_s();
+    // One load: Learn & Play opens an arrangement once (again within 3 s is the same load); the Mac edition
+    // opens all of a song's together, as it reads them (handle_read).
+    const char *what = g_lp ? name : key;
+    int again = !strcmp(what, last) && t - last_at < (g_lp ? 3 : 10);
+    if (again && !g_lp) last_at = t;
+    if (again) return;
+    snprintf(last, sizeof last, "%s", what);
+    last_at = t;
+    g_sng_opens_seen = 1;
     snprintf(dlc, sizeof dlc, "%s/dlc", g_lp_game_dir);
-    if (!lp_find_archive(dlc, entry, 3, path, sizeof path) && !lp_find_archive(g_lp_game_dir, entry, 0, path, sizeof path)) {
+    // A Mac archive has the song in songs/bin/macos/, a Windows one in songs/bin/generic/: Learn & Play's, and
+    // one a mod serves to the Mac edition as a Mac archive
+    int found = 0;
+    for (int generic = g_lp; generic < 2 && !found; generic++) {
+        snprintf(entry, sizeof entry, "songs/bin/%s/%.*s.sng", generic ? "generic" : "macos", (int)n, name);
+        found = open_archive_with(entry, path, sizeof path) || lp_find_archive(dlc, entry, 3, path, sizeof path) ||
+                lp_find_archive(g_lp_game_dir, entry, 0, path, sizeof path);
+    }
+    if (!found) {
         logline("the game opened %s.sng, which no archive in %s has", name, g_lp_game_dir);
         return;
     }
     rs_psarc *p = archive(path);
     song *s = p ? load_song(p, key) : NULL;
-    if (s) log_and_keep_song(s, key, path, t, name);
+    if (s) log_and_keep_song(s, key, path, t, g_lp ? name : NULL);
 }
 
 static void lp_enqueue(const char *name) {
@@ -367,7 +407,7 @@ static void *worker(void *arg) {
         g_dropped = 0;
         pthread_mutex_unlock(&g_q_lock);
         if (dropped) logline("warning: %u read events dropped (queue full)", dropped);
-        if (ev.off == -1) handle_lp_sng(ev.path);
+        if (ev.off == -1) handle_opened_sng(ev.path);
         else handle_read(&ev);
         free(ev.path);
     }
@@ -731,7 +771,7 @@ static void *patch_game_imports(void *arg) {
             return NULL;
         }
     }
-    logline("RS Re-ARMed: the game's file imports were not found: songs won't be seen");
+    if (!g_open_hook) logline("RS Re-ARMed: the game's file imports were not found: songs won't be seen");
     return NULL;
 }
 
@@ -1826,7 +1866,7 @@ static int another_copy_loaded(void) {
     return 0;
 }
 
-// ---------------------------------------------------------------- Learn & Play hooks (game thread: cheap)
+// ---------------------------------------------------------------- RS Re-ARMed hooks (game thread: cheap)
 
 static int lp_on_open_file(rc_regs *c, void *user) {
     (void)user;
@@ -1859,25 +1899,33 @@ static int lp_on_event(rc_regs *c, void *user) {
     return 0;
 }
 
-static void lp_init(void) {
+// RS Re-ARMed's mod interface: the hook that sees the game open a song's .sng, in both editions. Its Mac
+// edition (1.15) no longer calls open and read through the game image's import slots, so the file
+// calls patched there (patch_game_imports) see songs only in older versions.
+static void rc_init(void) {
     const char *(*target)(void) = (const char *(*)(void))dlsym(RTLD_DEFAULT, "rc_target");
     int (*hook)(const char *, rc_pre_fn, void *, void *) =
         (int (*)(const char *, rc_pre_fn, void *, void *))dlsym(RTLD_DEFAULT, "rc_hook_add_name");
-    if (!target || strcmp(target(), "win-x86")) return;
-    g_lp = 1;
-    const char *e = getenv("LP_GAME_DIR");
+    if (!target) return;
+    g_lp = !strcmp(target(), "win-x86");
+    if (!g_lp && strcmp(target(), "mac-x64")) return;
+    const char *e = g_lp ? getenv("LP_GAME_DIR") : NULL, *folder = g_lp ? "learn-play/" : "";
     char file[1024];
-    snprintf(file, sizeof file, "%s/Library/Application Support/RS Re-ARMed/learn-play/game-dir", getenv("HOME"));
+    snprintf(file, sizeof file, "%s/Library/Application Support/RS Re-ARMed/%sgame-dir", getenv("HOME"), folder);
     FILE *f = e && *e ? NULL : fopen(file, "r");
     if (e && *e) snprintf(g_lp_game_dir, sizeof g_lp_game_dir, "%s", e);
     else if (f && fgets(g_lp_game_dir, sizeof g_lp_game_dir, f)) g_lp_game_dir[strcspn(g_lp_game_dir, "\r\n")] = 0;
     if (f) fclose(f);
     if (!g_lp_game_dir[0])
-        snprintf(g_lp_game_dir, sizeof g_lp_game_dir, "%s/Library/Application Support/RS Re-ARMed/learn-play/game",
-                 getenv("HOME"));
+        snprintf(g_lp_game_dir, sizeof g_lp_game_dir, "%s/Library/Application Support/RS Re-ARMed/%sgame",
+                 getenv("HOME"), folder);
     if (!hook || hook("frontend_open_file", lp_on_open_file, NULL, NULL))
-        logline("Learn & Play: no frontend_open_file hook point: songs won't be seen");
-    if (hook && hook("ak_post_event_name", lp_on_event, NULL, NULL)) logline("Learn & Play: no ak_post_event_name hook point");
+        logline(g_lp ? "Learn & Play: no frontend_open_file hook point: songs won't be seen"
+                     : "RS Re-ARMed: no frontend_open_file hook point: songs are seen only by the game's file calls");
+    else if (!g_lp && (g_open_hook = 1))
+        logline("RS Re-ARMed: songs are seen as the game opens their .sng (game folder %s)", g_lp_game_dir);
+    if (g_lp && hook && hook("ak_post_event_name", lp_on_event, NULL, NULL))
+        logline("Learn & Play: no ak_post_event_name hook point");
 }
 
 __attribute__((constructor)) static void init(void) {
@@ -1888,7 +1936,7 @@ __attribute__((constructor)) static void init(void) {
     if (another_copy_loaded()) return;
     log_open(dir, "rscompanion.log");
     find_images();
-    if (g_rc_slide) lp_init();
+    if (g_rc_slide) rc_init();
     if (g_lp)
         logline("rscompanion prototype loaded (pid %d, RS Re-ARMed Learn & Play, game folder %s)", getpid(), g_lp_game_dir);
     else if (g_rc_slide)

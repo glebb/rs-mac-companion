@@ -47,6 +47,8 @@ mods folder, which doesn't change the game and survives a reinstall of RS Re-ARM
 folder can be set in Settings). RS Re-ARMed **Learn & Play** (the Windows game, which RS Re-ARMed
 also runs) works too, stream overlays included: the same library goes into its mods folder,
 alongside the Mac edition's when both are installed (Learn & Play needs RS Re-ARMed 1.5.0 or later).
+RS Re-ARMed 1.15 or later needs RS Companion 1.9.0 or later in its Mac edition: an older library
+doesn't see the songs there.
 
 ## RS Companion (the in-game version)
 

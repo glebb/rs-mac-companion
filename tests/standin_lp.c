@@ -13,6 +13,9 @@
 //     at +8, RockSniffer's Windows layout), hits and score going up; a freed copy without its type.
 // Runs SECONDS seconds. With a 5th argument "moves", the timer's copy is freed (reads as -1) 8 s
 // after the event and the timer goes on in another copy, as seen in Learn & Play.
+// With "mac ARCHIVE" it is RS Re-ARMed's Mac edition instead, as far as a song's load: rc_target is
+// "mac-x64", ARCHIVE is open as the game has a song's, and all of the song's .sng are opened
+// (songs/bin/macos/<KEY in lower case>_vocals, _bass, <ARRANGEMENT>). No image is at the slide.
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -29,7 +32,8 @@ typedef int (*rc_pre_fn)(rc_regs *c, void *user);
 
 uint64_t rc_slide;
 const int rc_guest_ptr_size = 4;
-const char *rc_target(void) { return "win-x86"; }
+static int mac;
+const char *rc_target(void) { return mac ? "mac-x64" : "win-x86"; }
 
 static struct { const char *name; rc_pre_fn pre; void *user; } hooks[8];
 static int nhooks;
@@ -63,9 +67,11 @@ int main(int argc, char **argv) {
     const char *lib = argv[1], *arr = argv[2], *key = argv[3];
     double seconds = atof(argv[4]);
     int moves = argc > 5 && !strcmp(argv[5], "moves");
-    // The guest window: 4 GB reserved, a heap committed in it
-    void *w = mmap(NULL, 1ULL << 32, PROT_NONE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE, -1, 0);
-    if (w == MAP_FAILED) return 1;
+    mac = argc > 6 && !strcmp(argv[5], "mac");
+    // The guest window: 4 GB reserved, a heap committed in it; then a page where the library looks for the
+    // Mac game's image (none there)
+    void *w = mmap(NULL, (1ULL << 32) + 0x4000, PROT_NONE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE, -1, 0);
+    if (w == MAP_FAILED || mprotect((char *)w + (1ULL << 32), 0x4000, PROT_READ)) return 1;
     rc_slide = (uint64_t)(uintptr_t)w;
     const uint32_t heap = 0x50000000, heap_size = 16 << 20;
     if (mprotect(G(heap), heap_size, PROT_READ | PROT_WRITE)) return 1;
@@ -88,6 +94,18 @@ int main(int argc, char **argv) {
     printf("standin: loaded, %d hooks, slide 0x%llx\n", nhooks, (unsigned long long)rc_slide);
     fflush(stdout);
     sleep(2);
+    if (mac) {
+        if (open(argv[6], O_RDONLY) < 0) return 1;
+        const char *us = strchr(arr, '_');
+        const char *names[] = {"_vocals", "_bass", us};
+        for (int i = 0; i < 3; i++) {
+            char *p = (char *)G(heap + 0x1000 + 0x200 * (uint32_t)i);
+            snprintf(p, 300, "songs/bin/macos/%.*s%s.sng", (int)(us - arr), arr, names[i]);
+            call("frontend_open_file", 0, (uint64_t)(uintptr_t)p);
+        }
+        sleep((unsigned)seconds);
+        return 0;
+    }
     char path[300], vocals[300];
     snprintf(path, sizeof path, "data\\songs\\bin\\generic\\%s.sng", arr);
     snprintf(vocals, sizeof vocals, "data\\songs\\bin\\generic\\%.*s_vocals.sng", (int)(strchr(arr, '_') - arr), arr);

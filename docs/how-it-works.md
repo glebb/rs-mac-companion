@@ -224,6 +224,12 @@ original x86_64 image's, recompiled; it calls libc through that image's own impo
 Re-ARMed fills with `dlsym` when the game starts (just after it sets `rc_slide`) and reads at every
 call. So there the library waits for the image and points the slots that hold `open`, `read`,
 `fopen`, `fread`, `close`, `fclose` at its replacements (the log says how many).
+That sees songs only before RS Re-ARMed 1.15, whose game calls `open`, `read` and the other file
+functions straight in RS Re-ARMed's file layer (the one that lets a mod serve files), not through the
+slots. So the library also hooks the game's own `FrontEnd_OpenFile` by name (`rc_hook_add_name`
+`frontend_open_file`, as in Learn & Play below): the game opens every arrangement's `.sng` as a song
+loads, and the song's archive is the one the game has open whose table of contents has that entry
+(else the game folder is searched). Once the hook has seen a song, the file reads are ignored.
 If an old install and the mods folder both load it, the second copy does nothing.
 
 **RS Re-ARMed Learn & Play** (the Windows game, recompiled by RS Re-ARMed; game folder
@@ -319,6 +325,7 @@ of the game executable, and on a copy of RS Re-ARMed's app if it's installed. `t
 | `tests/run_song_tones_test.sh` | stand-in → dylib → app with song tone messages on: the SysEx message at song load (style, main amp, tones in order of first use with their categories, drive, amp and effects) and Program Change 8 and 9 |
 | `tests/run_profile_test.sh` | the profile format and its rules, then stand-in → dylib → app with a profile sending straight to a test MIDI device: the sequence of the song's amp with its wait, the tones' snapshot, knob and effect CCs, the AI's correction of the drive, nothing on the virtual source |
 | `tests/run_installer_test.sh` | the installer on a copy of the game executable: fresh install, repeat, prototype migration, update, uninstall back to the original bytes, missing game, a damaged executable; Learn & Play alone (a stand-in game folder): its mods folder, update, uninstall; with RS Re-ARMed installed, on a copy of its app: install into and uninstall from the mods folder, moving an install with a load command there, and both mods folders when Learn & Play is installed too |
+| `tests/run_rearmed_test.sh` | the dylib (arm64) inside `tests/standin_lp.c` as RS Re-ARMed's Mac edition: a song's `.sng` files opened through the hook give one song load, from the archive the stand-in has open (*18 And Life* from RS Re-ARMed's dlc folder). Skipped without it |
 | `tests/run_lp_test.sh` | the dylib (arm64) inside `tests/standin_lp.c`, a stand-in for RS Re-ARMed Learn & Play (its mod interface and 4 GB guest window): loaded only for its `rc_mod_abi`, the song from the `.sng` the game opens (*18 And Life* from Learn & Play's dlc folder: a Windows archive, PC key), the play record locking the timer (not a decoy, not a stale record), the first tone change on time, and with the stream overlays on, the note statistics and Score Attack objects in `stats` events; then a song without tone changes whose timer copy is freed: the play record locks the new copy. Skipped without Learn & Play |
 | `tests/run_events_test.sh` | `rscore.c`'s events from `tests/events_harness.c`, for an ordinary song and one with 16 arrangements and every name as long as allowed: valid JSON, only whole parts (as many as fit), the log saying how many |
 | `tests/run_ai_app_test.sh` | `AIClassifier.swift` and `Presets.swift` against `tests/stub_responses.py` (a stand-in for OpenAI): the request (key, model, the script's prompt, strict schema), the saved answer, the song's remap and style, rejecting and using again, a wrong key |
