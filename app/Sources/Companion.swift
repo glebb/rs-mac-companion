@@ -519,6 +519,9 @@ final class Companion: ObservableObject {
         if overlay.running { overlay.handle(e) }
         switch e.event {
         case "song":
+            // A load, also of the song that was loaded last: its load sequence runs again, for a
+            // device or app that was restarted or switched by hand since.
+            songTonesKey = ""
             setSong(e)
             activeSlot = nil
             active = nil
