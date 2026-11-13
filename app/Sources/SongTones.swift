@@ -25,7 +25,8 @@ import Foundation
 /// Delay kinds: tape, analog, modulated, digital. Modulation kinds: chorus, flanger, phaser,
 /// tremolo, vibe. "drive" is how distorted the tone should sound, 0-1: its gear's, kept in its
 /// category's band (Rig.corrected); "amp" is the tone's amp as the song sets it, and "main_amp" the amp
-/// the arrangement plays longest.
+/// the arrangement plays longest. "rig" is everything the tone has, by slot: {"PrePedal1": {"gear":
+/// "Pedal_GermaniumDrive", "knobs": {"Gain": 45, "Tone": 50}}, "Amp": ..., "Cabinet": {"gear": "Cab_..."}, ...}.
 struct SongTones {
     static let defaultFirstProgram = 8
     static let maxTones = 5         // Base and A-D
@@ -37,6 +38,7 @@ struct SongTones {
         var drive: Double? = nil        // Rig.corrected
         var amp: Rig.Gear? = nil
         var values: [String: Double] = [:]  // what a profile's knobs read (Profile.knobSources)
+        var rig: [String: Rig.Gear] = [:]   // every gear item by its slot, as the song has it
     }
 
     let song: String
@@ -77,7 +79,8 @@ struct SongTones {
             let drive = Rig.drive(t).map { Rig.corrected($0, category: c) }
             var values = Rig.values(t)
             values["drive"] = drive
-            return Tone(key: entry.key, category: c, effects: Rig.effects(t), drive: drive, amp: t.gear["Amp"], values: values)
+            return Tone(key: entry.key, category: c, effects: Rig.effects(t), drive: drive, amp: t.gear["Amp"], values: values,
+                        rig: t.gear)
         }
         var amps: [(key: String, seconds: Double)] = []
         for entry in Rig.toneOrder(a) {
@@ -98,6 +101,15 @@ struct SongTones {
             if let value { out[name] = decimal(value, places: 1) }
         }
         return out
+    }
+
+    /// A tone's whole rig for the message, by slot ("PrePedal1", "Amp", "Cabinet", "Rack2", ...): each item's
+    /// model and every knob as the song sets it, for a receiver that maps more than the amp and the effects.
+    static func rig(_ gear: [String: Rig.Gear]) -> [String: Any] {
+        gear.mapValues { item in
+            ["gear": item.key,
+             "knobs": item.knobs.filter { !$0.key.isEmpty && $0.value.isFinite }.mapValues { decimal($0, places: 1) }] as [String: Any]
+        }
     }
 
     /// A tone's effects for the message: what the song's gear has, no more.
@@ -148,6 +160,7 @@ struct SongTones {
                                            "effects": Self.effects(t.effects)]
                 tone["drive"] = t.drive.map { Self.decimal($0, places: 2) }
                 tone["amp"] = t.amp.map(Self.amp)
+                if !t.rig.isEmpty { tone["rig"] = Self.rig(t.rig) }
                 return tone
             },
         ]

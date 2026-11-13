@@ -86,6 +86,7 @@ plays them, so the first one is needed first.
 | `drive` | 0–1, may be missing | how distorted the tone should sound, on any amp: the song's gear, kept in the band of the tone's `category` ([Knobs](device-profiles.md#knobs)) |
 | `amp` | object, may be missing | the tone's amp as the song sets it: `gear` (e.g. `Amp_CA100`), and `gain`, `bass`, `mid`, `treble` and `presence` (0–100), each when the amp has it |
 | `effects` | object | the tone's time-based and modulation effects, as below. An effect that's missing means the tone doesn't have one |
+| `rig` | object, may be missing | everything the tone has, by its slot in the game's chain: `PrePedal1`–`4` (ahead of the amp), `Amp`, `PostPedal1`–`4` (the amp's loop), `Cabinet`, `Rack1`–`4` (after the cabinet). Each item is `{"gear": "Pedal_GermaniumDrive", "knobs": {"Gain": 45, "Tone": 50}}`, with every knob as the song sets it, named as the game names it without the gear's prefix. For a receiver that maps more than the amp and the effects: the cabinet, drive pedals, compressors, EQs |
 
 `effects` describes what the song's gear has, with Rocksmith's knob values: no caps, no
 conversions. If a tone has more than one effect of a kind, the one with the most mix is used.
@@ -97,8 +98,8 @@ conversions. If a tone has more than one effect of a kind, the one with the most
 | `reverb` | `gear`; `mix` when the gear has it |
 
 `amp`'s knobs are tuned to Rocksmith's own amp models and don't carry over to other gear well:
-`category`, `style` and `drive` are what tell a receiver how driven the tone should be. Cabinets
-aren't included.
+`category`, `style` and `drive` are what tell a receiver how driven the tone should be. The
+cabinet, with its microphone and where it stands (`Cab_Marshall1960a_57_Cone`), is in `rig`.
 
 A receiver should ignore fields it doesn't know: new ones are added within version 2.
 
