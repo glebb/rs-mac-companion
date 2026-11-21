@@ -184,13 +184,25 @@ enum Rig {
         return fx
     }
 
+    /// The amps whose Bass, Mid and Treble are in dB, -12 to 12, where every other amp's go from 0 to 100
+    /// (the game's gears.psarc, manifests/gears; rs-tonehost's tone_db has the same nine).
+    static let toneKnobsInDB: Set<String> = ["Bass_Amp_BT880B", "Bass_Amp_BT975B", "Bass_Amp_CH300B", "Bass_Amp_CH600B",
+                                             "Bass_Amp_CS75B", "Bass_Amp_EdenE300", "Bass_Amp_EdenWT550",
+                                             "Bass_Amp_EdenWT800", "Bass_Amp_HT400B"]
+
+    /// An amp's tone knob on the 0-100 of every other amp's: on those in dB, 0 dB is the middle, as rs-tonehost has it.
+    static func toneKnob(_ amp: Gear?, _ name: String) -> Double? {
+        guard let amp, let v = amp.knobs[name] else { return nil }
+        return toneKnobsInDB.contains(amp.key) ? 50 + v * 100 / 24 : v
+    }
+
     /// What a device profile's knobs read (Profile.knobSources), as the song's gear sets them; what
     /// the tone doesn't have is left out. The drive isn't here: it depends on the song (corrected).
     static func values(_ tone: Tone) -> [String: Double] {
         let fx = effects(tone), amp = tone.gear["Amp"]
         let all: [String: Double?] = [
-            "gain": amp.flatMap(gain), "bass": amp?.knobs["Bass"], "mid": amp?.knobs["Mid"],
-            "treble": amp?.knobs["Treble"], "presence": amp?.knobs["Pres"],
+            "gain": amp.flatMap(gain), "bass": toneKnob(amp, "Bass"), "mid": toneKnob(amp, "Mid"),
+            "treble": toneKnob(amp, "Treble"), "presence": amp?.knobs["Pres"],
             "delay_time": fx.delay?.time, "delay_mix": fx.delay?.mix, "delay_feedback": fx.delay?.feedback,
             "reverb_mix": fx.reverb?.mix, "modulation_mix": fx.mod?.mix, "modulation_rate": fx.mod?.rate,
             "overdrive_gain": fx.overdrive?.gain, "overdrive_tone": fx.overdrive?.tone, "distortion_gain": fx.distortion?.gain,

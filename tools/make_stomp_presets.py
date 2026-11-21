@@ -179,6 +179,9 @@ def profile(slots, amps, calibration, cab_range):
     amp_knobs = []
     for game, amp in games:
         own = [{"cc": CC["level"], "range": cab_range, "sum": calibration[amp]["cab_db"]}]
+        least = calibration[amp].get("least_gain", 0)
+        if least > 0:  # an amp that goes silent near the bottom of its gain: its Drive stays at tonehost's least
+            own.insert(0, {"cc": CC["gain"], "range": [0, 100], "sum": [{"from": "gain", "points": [[0, least], [least, least], [100, 100]]}]})
         if input_scale(calibration[amp])[1] == 100:  # this amp's input rises alike with a boost pedal or without
             own.append({"cc": CC["input"], "from": "gain", "range": [0, 100]})
         amp_knobs.append('    "%s": %s' % (game, compact(own)))

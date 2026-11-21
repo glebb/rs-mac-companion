@@ -9,8 +9,13 @@ follow the game's gain knob, a Minotaur stands in for a boost or overdrive pedal
 metal or fuzz pedal, and the tone knobs are the game's. Its rules are read from tonehost's config.json. Then tonehost
 measures each tone as it loads and sets its level. The Stomp can't, so RS Companion sets the level of each tone from a
 formula per amp, a sum of terms of the tone's settings (profile knobs with "sum", docs/device-profiles.md). This measures
-what the formula needs: tools/measure_helix.m plays tonehost's probe through tonehost's own saved states, set as the
-Stomp would be, over a grid of gain, pedals and tone knobs. MEASUREMENTS is its output, to read it again without measuring.
+what the formula needs: tools/measure_helix.m builds each tone's preset from tonehost's Helix Native profile as tonehost
+does, set as the Stomp would be, over a grid of gain, pedals and tone knobs, and measures it as tonehost measures a tone:
+its reference guitar phrase, and the loudness that comes out. MEASUREMENTS is its output, to read it again without
+measuring.
+
+Where tonehost keeps an amp's gain from going under a value (least_gain, on the amps that go silent near the bottom of
+their gain), so does this, and calibration.json has it as the least gain for CC 26.
 
 What isn't on the Stomp is left out of the measurement too: tonehost's octaves, wah, compressor and acoustic emulator,
 and the other effects, whose mix changes the level little.
@@ -20,8 +25,12 @@ import json, math, os, subprocess, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REARMED = os.path.expanduser("~/Library/Application Support/RS Re-ARMed")
 TONEHOST = os.path.join(REARMED, "tonehost", "config.json")
+PLUGINS = os.path.join(REARMED, "tonehost", "plugins")
 RES = "/Applications/Line6/HX Edit.app/Contents/Resources"
-TARGET_DB = -29.5       # where a guitar's pluck peaking at -18 dB comes out: Classic Rock's Crunch, less 3 dB
+# Where tonehost's reference guitar at -18 dB comes out. It was -29.5 when the guitar was a low pluck and the level its
+# plain power: the phrase's loudness reads clean tones (gain 20, no pedal) a median 2.0 dB lower across the 35 amps, so
+# clean tones stay as loud as before, and driven ones come up, as in tonehost (hx-stomp-presets/README.md, Level)
+TARGET_DB = -31.5
 LEAD_LIFT = 1.15        # as in make_stomp_presets.py: Ch Vol is kept below 1 / this
 GAINS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 KNOB_GAINS = [0.2, 0.5, 0.8]
@@ -34,12 +43,15 @@ GUITAR_KEY = "Amp_X"
 
 
 class Tonehost:
-    """tonehost's config: its templates, and the parameters its rules set."""
+    """tonehost's config and its Helix Native profile: the templates, and the parameters their rules set."""
 
     def __init__(self, path=TONEHOST):
         self.config = json.load(open(path))
-        self.dir = os.path.dirname(path)
-        self.map, self.templates = self.config["map"], self.config["templates"]
+        self.dir = os.path.join(PLUGINS, self.config.get("profile", "helix-native"))
+        self.profile = json.load(open(os.path.join(self.dir, "profile.json")))
+        if self.profile.get("engine") != "helix":
+            sys.exit("tonehost's profile %s isn't Helix Native's: set it up with Re-ARMed Mods' Set Up Helix Native" % self.dir)
+        self.map, self.templates = self.profile["map"], self.profile["templates"]
         rules = self.map["follow"]
         self.switches = sorted(r["param"] for r in rules if "present" in r)
         def present(key):
@@ -53,38 +65,42 @@ class Tonehost:
         self.input_gain_db = float(self.config["input"].get("gain_db", 0))  # tonehost raises the guitar by this first
         self.probe_db = float(self.config.get("probe_peak_db", -12))
 
-    def state(self, amp):
-        s = self.templates[amp]["state"]
-        return s if s.startswith("/") else os.path.join(self.dir, s)
-
     def _rule(self, amp, param, overdrive):
-        """The rule tonehost uses for a parameter from the gain knob: (scale, offset)."""
+        """The rule tonehost uses for a parameter from the gain knob."""
         for f in reversed(self.templates[amp].get("follow", [])):
             if f.get("param") == param and f.get("from") == "amp_gain":
-                return f["scale"], f["offset"]
+                return f
         for f in self.map["follow"]:
             if f.get("param") != param or f.get("from") != "amp_gain":
                 continue
             if ("with" in f) != overdrive and ("with" in f or "without" in f):
                 continue
-            return f["scale"], f["offset"]
+            return f
         raise KeyError((amp, param))
 
     def drive(self, amp):
         """The amp's Drive at gain 1 (0.93, or 0.6 on amps with gain enough of their own)."""
-        return self._rule(amp, 0, False)[0]
+        return self._rule(amp, 0, False)["scale"]
+
+    def least(self, amp):
+        """The least Drive tonehost gives the amp, 0-1: 0 but on the amps that go silent near the bottom of their gain."""
+        return float(self._rule(amp, 0, False).get("least", 0))
+
+    def least_gain(self, amp):
+        """The game's gain knob, 0-100, under which the amp's Drive stays at its least."""
+        return round(100 * self.least(amp) / self.drive(amp), 1)
 
     def input(self, amp, overdrive):
         """tonehost's Master Input in dB at gain 0, and its rise to gain 1."""
-        scale, offset = self._rule(amp, 32, overdrive)
-        return offset, scale
+        f = self._rule(amp, 32, overdrive)
+        return f["offset"], f["scale"]
 
     def params(self, amp, gain, knobs=None, overdrive=None, distortion=None):
         """The Audio Unit parameters for a tone as the Stomp plays it. gain is 0-1, knobs and pedals 0-100."""
         out = {int(k): float(v) for k, v in self.templates[amp]["params"].items()}
         for s in self.switches:
             out[s] = 0.0
-        out[0] = self.drive(amp) * gain
+        out[0] = max(self.drive(amp) * gain, self.least(amp))
         offset, scale = self.input(amp, overdrive is not None)
         out[32], out[33] = offset + scale * gain, 0.0
         for name, value in (knobs or {}).items():
@@ -119,27 +135,28 @@ def channel_volume(amp, M):
 
 
 def jobs(th, amps):
-    """(label, state, params) for each amp: the gain alone, with each pedal, and each tone knob at its ends."""
+    """(label, template, params) for each amp: the gain alone, with each pedal, and each tone knob at its ends."""
     out = []
     for amp in amps:
         for g in GAINS:
-            out.append(("%s|plain|%g" % (amp, g), th.state(amp), th.params(amp, g)))
-            out.append(("%s|overdrive|%g" % (amp, g), th.state(amp), th.params(amp, g, overdrive=(PEDAL_GAIN, PEDAL_GAIN))))
-            out.append(("%s|distortion|%g" % (amp, g), th.state(amp), th.params(amp, g, distortion=PEDAL_GAIN)))
+            out.append(("%s|plain|%g" % (amp, g), amp, th.params(amp, g)))
+            out.append(("%s|overdrive|%g" % (amp, g), amp, th.params(amp, g, overdrive=(PEDAL_GAIN, PEDAL_GAIN))))
+            out.append(("%s|distortion|%g" % (amp, g), amp, th.params(amp, g, distortion=PEDAL_GAIN)))
         for name in KNOBS:
             for v in (0, 100):
                 for g in KNOB_GAINS:
-                    out.append(("%s|%s=%d|%g" % (amp, name, v, g), th.state(amp), th.params(amp, g, knobs={name: v})))
+                    out.append(("%s|%s=%d|%g" % (amp, name, v, g), amp, th.params(amp, g, knobs={name: v})))
     return out
 
 
 def measure(th, todo):
     tool = os.path.join(ROOT, "build", "measure_helix")
-    subprocess.check_call(["clang", "-O2", "-fobjc-arc", os.path.join(ROOT, "tools", "measure_helix.m"), "-framework", "Foundation",
-                           "-framework", "AudioToolbox", "-o", tool])
-    text = "".join("%s\t%s\t%s\n" % (label, state, " ".join("%d=%g" % kv for kv in sorted(ps.items()))) for label, state, ps in todo)
+    vendor = os.path.join(ROOT, "third_party", "tonehost")
+    subprocess.check_call(["clang", "-O2", "-fobjc-arc", "-I", vendor, os.path.join(ROOT, "tools", "measure_helix.m"),
+                           os.path.join(vendor, "engine.c"), "-framework", "Foundation", "-framework", "AudioToolbox", "-o", tool])
+    text = "".join("%s\t%s\t%s\n" % (label, template, " ".join("%d=%g" % kv for kv in sorted(ps.items()))) for label, template, ps in todo)
     env = dict(os.environ, DYLD_INSERT_LIBRARIES=os.path.join(REARMED, "libnetguard.dylib"))
-    return subprocess.run([tool, "--at", str(int(th.probe_db))], input=text, env=env, stdout=subprocess.PIPE,
+    return subprocess.run([tool, "--profile", th.dir, "--at", str(int(th.probe_db))], input=text, env=env, stdout=subprocess.PIPE,
                           stderr=subprocess.DEVNULL, text=True, check=True).stdout
 
 
@@ -186,7 +203,7 @@ def calibrate(amp, level, th, M):
             terms.append({"from": n, "points": [[0, round(slopes[n] * d, 2)], [100, round(-slopes[n] * (100 - d), 2)]]})
     od0, od1 = th.input(amp, True)
     in0, in1 = th.input(amp, False)
-    return {"drive": th.drive(amp), "input_db": [round(in0 + th.input_gain_db, 2), round(in1, 2)],
+    return {"drive": th.drive(amp), "least_gain": th.least_gain(amp), "input_db": [round(in0 + th.input_gain_db, 2), round(in1, 2)],
             "input_overdrive_db": [round(od0 + th.input_gain_db, 2), round(od1, 2)],
             "output_db": output, "cab_db": terms, "cab_lowest_db": round(low, 1), "knob_miss_db": round(max(misses), 1),
             "short_db": round(short, 1), "full_from_gain": reach,
@@ -198,7 +215,7 @@ def main():
     amps = json.load(open(os.path.join(ROOT, "hx-stomp-presets", "amps.json")))["slots"]
     missing = [a for a in amps if a not in th.templates]
     if missing:
-        sys.exit("tonehost has no state for %s: run its tonehost/helix/setup.sh" % ", ".join(missing))
+        sys.exit("tonehost's Helix Native profile has no %s: set it up again with Re-ARMed Mods' Set Up Helix Native" % ", ".join(missing))
     if len(sys.argv) > 1:
         text = open(sys.argv[1]).read()
     else:
@@ -211,15 +228,15 @@ def main():
     for line in text.splitlines():
         label, value = line.split()[:2]
         amp, what, g = label.split("|")
-        if value == "failed":  # measure_helix couldn't load the state
+        if value == "failed":  # measure_helix couldn't make the preset, or the engine refused it
             failed.add(amp)
             continue
         level.setdefault(amp, {})[what, float(g)] = float(value)
     if failed:
-        sys.exit("Helix Native couldn't load tonehost's state for %s" % ", ".join(sorted(failed)))
+        sys.exit("Helix Native's engine took no preset for %s" % ", ".join(sorted(failed)))
     out = {"cab_range": list(CAB_RANGE), "_": "From tools/calibrate_stomp.py: Helix Native measured as the presets per amp play a tone, for "
-                "make_stomp_presets.py. cab_db is the formula for the cab's Level by CC 37, so that a guitar's pluck peaking at "
-                "-18 dB comes out at target_db.", "target_db": TARGET_DB, "guitar_db": th.probe_db - th.input_gain_db, "amps": {}}
+                "make_stomp_presets.py. cab_db is the formula for the cab's Level by CC 37, so that tonehost's reference guitar at "
+                "-18 dB comes out at target_db, measured as tonehost measures a tone.", "target_db": TARGET_DB, "guitar_db": th.probe_db - th.input_gain_db, "amps": {}}
     for amp in amps:
         out["amps"][amp] = c = calibrate(amp, level[amp], th, M)
         print("%-18s drive x%.2f  output %+3d dB  level reached from gain %3d, short by up to %4.1f dB  knobs %s, off by up to %.1f dB" % (

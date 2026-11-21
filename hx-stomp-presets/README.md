@@ -182,8 +182,8 @@ The chain, in order:
 |---|---|---|
 | 20 | Ch Vol, for Lead | ×1.15, about +1.2 dB |
 | 21, 22, 24, 25 | Bypass: chorus, phaser, delay, reverb | |
-| 26 | The amp's Drive, from the game's gain knob | 0–9.3, or 0–6 on Cali Rectifire, Das Benzin Mega, Mandarin Rocker and Solo Lead OD |
-| 27–30 | Bass, Mid, Treble, Presence | full range. An amp without one ignores it |
+| 26 | The amp's Drive, from the game's gain knob | 0–9.3, or 0–6 on Cali Rectifire, Das Benzin Mega, Mandarin Rocker and Solo Lead OD. Never under tonehost's least on the amps that go silent near the bottom of their gain: see [How hard](#how-hard) |
+| 27–30 | Bass, Mid, Treble, Presence | full range. An amp without one ignores it. On the nine bass amps whose knobs are in dB, 0 dB is the middle |
 | 31, 33, 34 | Delay time, feedback, mix | 0–2 s, full range |
 | 35, 36 | Reverb mix, chorus mix | full range |
 | 37 | The cab's Level: the tone's level | -60 to +6 dB, from a formula per amp: see below |
@@ -204,22 +204,43 @@ is the gain times 0.93, or 0.6 on those four. That runs the amps far harder than
 measured on 728 of the game's guitar tones, the distortion of a crunch tone is a median 38 dB past where the
 amp starts to compress, and a heavy one's 44, where the presets aimed at 5 and 15.
 
+A Helix amp's gain is its volume too, and some go silent near the bottom of it: Brit 2203 at Drive 0 is 92 dB
+down. tonehost keeps the Drive of those amps from going under a least value (`least_gain`, 19 of the 35 amps here; the
+rest keep the game's gain), and so does CC 26: the profile's `amp_knobs` holds it at the game's gain that gives
+that Drive, from 11 on US Double Nrm to 33 on Mandarin Rocker. calibration.json has it as `least_gain`.
+
 The tone's drive and category play no part in this. Big City Nights' Bluesbreaker at gain 73 with a
 SuperDrive, which came out clean before, now gets its input raised 20.8 dB, Drive 6.8 and the Minotaur, as
 in tonehost.
 
 ### Level
 
-tonehost plays its probe, a low plucked string, through each tone as it loads, and sets the tone's output so
-that every tone comes out alike. Across those 728 tones that undoes a spread of 17 dB (the middle 80%). The
+tonehost plays its reference guitar through each tone as it loads, and sets the tone's output so that every
+tone comes out alike. The guitar is a made-up phrase of half a second (a power chord, a softer chord and a soft
+note dying away, shaped after recorded dry guitar), and what comes out is measured as loudness, BS.1770's
+K-weighting. Until 21 November 2026 it was one low plucked string and its plain power, which made distorted
+tones too quiet beside clean ones: through 105 tones of recorded guitar, more than 4 dB off for one tone in ten. Across those 728 tones that undoes a spread of 17 dB (the middle 80%). The
 Stomp can't measure, so RS Companion sets the cab's Level from a formula per amp, in the profile's
 `amp_knobs` ([Sums](../docs/device-profiles.md#sums)): the tone's gain through the amp's measured curve, a
 term for a boost and for a distortion pedal, and one per tone knob.
 
-`tools/calibrate_stomp.py` measures the formulas in Helix Native, offline, through tonehost's saved states
-set as the Stomp plays a tone (`tools/measure_helix.m`): each amp at 11 gains, alone and with each pedal, and
-each tone knob at both ends. The Stomp has the same models, and Native needs no guitar. Run it again after a
-change of amps or of tonehost's rules, then `tools/make_stomp_presets.py`.
+`tools/calibrate_stomp.py` measures the formulas in Helix Native, offline (`tools/measure_helix.m`): it builds
+each tone's preset from tonehost's Helix Native profile as tonehost does, hands it to Helix's engine, and
+measures it with tonehost's phrase and meter (`third_party/tonehost`): each amp at 11 gains, alone and with each
+pedal, and each tone knob at both ends. The Stomp has the same models, and Native needs no guitar. It needs
+Helix Native set up for tonehost (Re-ARMed Mods' Set Up Helix Native). Run it again after a change of amps or of
+tonehost's rules, then `tools/make_stomp_presets.py`.
+
+The target is where the reference guitar at -18 dB comes out: -31.5 LUFS. It was -29.5 dB with the pluck's
+power, and the phrase's loudness reads a clean tone (gain 20, no pedal) a median 2.0 dB lower, so clean tones
+stay as loud as they were on the Stomp. Driven ones come up beside them: at gain 50 about 1.2 dB, with a
+distortion pedal about 2.8 dB (medians over the 35 amps).
+
+**Since 21 November 2026** (the phrase, the least gain): every amp reaches the target from gain 0, where 19 amps
+fell short at low gains before, by up to 64 dB (Agua 51, Woody Blue). Woody Blue is still 1 dB short at its
+quietest. The tone knobs' formula misses by less on most amps, since the phrase hears the Bass knob less than
+the pluck did. The output block's level changed in 28 presets, so import those again: their files changed.
+The check on 672 tones below is from before then, and hasn't been run again.
 
 Checked on 672 guitar tones from a library, picked at random: each measured in Native as the Stomp plays it
 through its own amp's preset, with the formula worked out as RS Companion does it, to the CC step. The
@@ -237,10 +258,10 @@ acoustic emulator.
 - tonehost's compressor, octaves, wah, acoustic emulator, flanger and tremolo aren't on the Stomp, so tones
   with them sound different, and the formula doesn't count them.
 - A tone knob's effect depends on how hard the amp is driven, and the formula takes its average: it misses
-  by 2 to 3 dB on most amps at a knob's end, and up to 8 dB on bass amps such as Agua Sledge. The probe is a
-  low note, which hears the Bass knob more than a guitar does; tonehost has the same bias.
-- At gain 0 some amps fall nearly silent (Brit 2203 measures 93 dB down). tonehost raises them all the way;
-  the Stomp can raise a tone by 26 dB at most (the output block's +20 and the cab's +6), so those stay quieter.
+  by 1 to 3 dB on most amps at a knob's end, and up to 7.6 dB on Woody Blue and 5 to 6 dB on the bass amps
+  (SV Beast, Agua Sledge).
+- The Stomp can raise a tone by 26 dB at most (the output block's +20 and the cab's +6). With the least gain
+  every amp gets there; tonehost raises a tone further where it has to.
 - Ch Vol is taken as linear on amps whose default it had to lower for the lead lift.
 
 ### Lead

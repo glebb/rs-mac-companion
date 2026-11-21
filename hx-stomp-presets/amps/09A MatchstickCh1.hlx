@@ -305,7 +305,7 @@
     "outputA": {
      "@model": "HelixStomp_AppDSPFlowOutputMain",
      "@output": 1,
-     "gain": 20.0,
+     "gain": 12,
      "pan": 0.5
     },
     "outputB": {

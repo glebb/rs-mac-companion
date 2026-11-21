@@ -99,7 +99,7 @@ fixed sounds:
 |---|---|---|
 | `drive` | 0–1 | how distorted the tone should sound: see below |
 | `gain` | 0–100 | the amp's gain knob, as the song sets it |
-| `bass`, `mid`, `treble`, `presence` | 0–100 | the amp's knobs. Not every amp has them all |
+| `bass`, `mid`, `treble`, `presence` | 0–100 | the amp's knobs. Not every amp has them all. Nine bass amps have Bass, Mid and Treble in dB, -12 to 12: those come as 0 to 100 too, 0 dB at 50 |
 | `delay_time` | 0–2000 | in ms |
 | `delay_mix`, `delay_feedback` | 0–100 | |
 | `reverb_mix` | 0–100 | |

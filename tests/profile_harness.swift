@@ -73,6 +73,14 @@ import Foundation
         check(value(jcm, 37) != nil && value(amps.toneSteps(category: .lead, toneIndex: 0, effectKinds: [],
                                                              knobValues: ["drive": 0.8, "gain": 100]), 37) == nil,
               "the level comes from the song's amp; a song a style's preset plays has none")
+        // An amp that goes silent near the bottom of its gain (Plexi Brt, which Amp_MarshallPlexi plays) keeps
+        // tonehost's least Drive; the others follow the gain all the way down
+        let plexi = { (g: Double) in value(amps.toneSteps(category: .clean, toneIndex: 0, effectKinds: [],
+                                                          knobValues: ["drive": 0.1, "gain": g], amp: "Amp_MarshallPlexi"), 26) }
+        check(plexi(0) == plexi(10) && plexi(0)! > 10 && plexi(60) == 76,
+              "a least gain: \(String(describing: plexi(0))), \(String(describing: plexi(10))), \(String(describing: plexi(60)))")
+        check(value(amps.toneSteps(category: .clean, toneIndex: 0, effectKinds: [], knobValues: ["drive": 0.1, "gain": 0],
+                                   amp: "Amp_GB100"), 26) == 0, "no least gain on an amp that plays at the bottom of its gain")
         let boosted = amps.toneSteps(category: .heavy, toneIndex: 0, effectKinds: ["overdrive"],
                                      knobValues: ["drive": 0.8, "gain": 100, "overdrive_gain": 50], amp: "Amp_MarshallJCM800")
         check(value(boosted, 39) == 127 && value(boosted, 40) == 127 && value(boosted, 41) == 64 && value(boosted, 37) != value(jcm, 37),
@@ -141,6 +149,12 @@ import Foundation
             "PrePedal2": .init(key: "Pedal_SuperDrive", knobs: [:]),
         ]))
         check(ungained.overdrive?.key == "Pedal_LineDrive", "pedals without a gain: the first in slot order")
+        let inDB = Rig.values(Rig.Tone(key: "t", gear: ["Amp": .init(key: "Bass_Amp_EdenWT550",
+                                                                     knobs: ["Bass": -12, "Mid": 0, "Treble": 6, "Pres": 40])]))
+        check(inDB["bass"] == 0 && inDB["mid"] == 50 && inDB["treble"] == 75 && inDB["presence"] == 40,
+              "an amp's tone knobs in dB on the 0-100 of the others': \(inDB)")
+        check(pv["bass"] == nil && Rig.values(Rig.Tone(key: "t", gear: ["Amp": .init(key: "Bass_Amp_BT600B", knobs: ["Bass": 30])]))["bass"] == 30,
+              "other amps' tone knobs as they are")
 
         // Knobs: a range for a tone with an effect, and sums of terms.
         let formula = try! Profile.parse(Data(#"""
