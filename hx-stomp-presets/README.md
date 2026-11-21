@@ -235,7 +235,9 @@ pedal's Mix, along a log of the frequency: a mix of 22, the library's median, ta
 kHz. tonehost cuts in full whatever the mix, which at 22 would sound far thinner than the game's blend.
 
 Not heard on a Stomp: the fold, the Mix scaling and the controllers on the cab's cuts are new (21 November 2026).
-They add controllers to every preset per amp, so all 35 need importing again.
+They add controllers to every preset per amp, so all 35 need importing again. Imported into a Stomp the same
+day: HX Edit lists the cab's Low Cut on CC 45 (Off to 400 Hz) and High Cut on CC 46 (Off to 3.0 kHz, a range
+that runs downwards), as made.
 
 ### Level
 
