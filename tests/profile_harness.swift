@@ -81,6 +81,18 @@ import Foundation
               "a least gain: \(String(describing: plexi(0))), \(String(describing: plexi(10))), \(String(describing: plexi(60)))")
         check(value(amps.toneSteps(category: .clean, toneIndex: 0, effectKinds: [], knobValues: ["drive": 0.1, "gain": 0],
                                    amp: "Amp_GB100"), 26) == 0, "no least gain on an amp that plays at the bottom of its gain")
+        // A Lo-Fi Filter: the cab's cuts towards a band limit by its mix; without one, the cab's own (CC 0)
+        let cuts = { (v: [String: Double]) in
+            let s = amps.toneSteps(category: .clean, toneIndex: 0, effectKinds: [], knobValues: ["drive": 0.1, "gain": 30].merging(v) { $1 },
+                                   amp: "Amp_MarshallJCM800")
+            return [value(s, 45), value(s, 46)]
+        }
+        check(cuts([:]) == [0, 0] && cuts(["lofi": 100]) == [127, 127] && cuts(["lofi": 50]).allSatisfy { ($0 ?? 0) > 10 && ($0 ?? 0) < 100 },
+              "the cab's cuts: \(cuts([:])), \(cuts(["lofi": 100])), \(cuts(["lofi": 50]))")
+        // The tone knobs with the EQ folded in, on CC 27-29
+        check(value(amps.toneSteps(category: .clean, toneIndex: 0, effectKinds: [],
+                                   knobValues: ["drive": 0.1, "gain": 30, "bass": 60, "bass_eq": 80], amp: "Amp_MarshallJCM800"), 27) == 102,
+              "CC 27 follows the bass with the EQ in it")
         let boosted = amps.toneSteps(category: .heavy, toneIndex: 0, effectKinds: ["overdrive"],
                                      knobValues: ["drive": 0.8, "gain": 100, "overdrive_gain": 50], amp: "Amp_MarshallJCM800")
         check(value(boosted, 39) == 127 && value(boosted, 40) == 127 && value(boosted, 41) == 64 && value(boosted, 37) != value(jcm, 37),
@@ -155,6 +167,25 @@ import Foundation
               "an amp's tone knobs in dB on the 0-100 of the others': \(inDB)")
         check(pv["bass"] == nil && Rig.values(Rig.Tone(key: "t", gear: ["Amp": .init(key: "Bass_Amp_BT600B", knobs: ["Bass": 30])]))["bass"] == 30,
               "other amps' tone knobs as they are")
+
+        // EQs: their broad shape onto the amp's tone knobs, and a Lo-Fi Filter's mix
+        let amp60 = Rig.Gear(key: "Amp_MarshallJCM800", knobs: ["Bass": 60, "Mid": 50, "Treble": 40])
+        let graphic = Rig.Tone(key: "t", gear: ["Amp": amp60, "PrePedal1": .init(key: "Pedal_EQ5",
+            knobs: ["63": 6, "250": 0, "750": -4, "2200": 8, "5700": 4])])
+        let g = Rig.eqShape(graphic)
+        check(g?.low == 3 && g?.mid == -4 && g?.high == 6, "a graphic EQ's bands averaged by region: \(String(describing: g))")
+        let gv = Rig.values(graphic)
+        check(gv["bass_eq"] == 72.5 && gv["mid_eq"] == 50 - 4 * 100 / 24.0 && gv["treble_eq"] == 65 && gv["bass"] == 60,
+              "the shape on the knobs, ±12 dB half their travel; the amp's own knobs as they are: \(gv)")
+        let studio = Rig.Tone(key: "t", gear: ["Amp": amp60, "Rack1": .init(key: "Rack_StudioEQ",
+            knobs: ["Bass": -12, "BassFreq": 120, "LoMid": 6, "LoMidFreq": 800, "HiMid": 10, "HiMidFreq": 4, "Treble": 9, "TrebleFreq": 5]),
+            "Rack2": .init(key: "Rack_StudioEQ", knobs: ["Bass": -6, "BassFreq": 100])])
+        let st = Rig.eqShape(studio)
+        check(st?.low == -12 && st?.mid == 3 && st?.high == 12, "shelves in full, peaks by half, two EQs added, ±12 at most: \(String(describing: st))")
+        check(Rig.values(studio)["bass_eq"] == 10 && Rig.values(studio)["treble_eq"] == 90, "clamped to the knob")
+        check(Rig.eqShape(pedals) == nil && pv["bass_eq"] == nil && pv["lofi"] == nil, "no EQ, no amp knob: nothing")
+        let lofi = Rig.Tone(key: "t", gear: ["Amp": amp60, "PostPedal1": .init(key: "Pedal_LoFiFilter", knobs: ["Mix": 22, "FilterType": 77])])
+        check(Rig.values(lofi)["lofi"] == 22 && Rig.values(lofi)["bass_eq"] == 60, "a Lo-Fi Filter: its mix, and no EQ shape")
 
         // Knobs: a range for a tone with an effect, and sums of terms.
         let formula = try! Profile.parse(Data(#"""

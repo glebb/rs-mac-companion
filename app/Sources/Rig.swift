@@ -196,6 +196,58 @@ enum Rig {
         return toneKnobsInDB.contains(amp.key) ? 50 + v * 100 / 24 : v
     }
 
+    /// The broad shape of a tone's EQ pedals and racks, in dB: how much they raise or cut the lows (under 300 Hz),
+    /// the mids (to 2 kHz) and the highs, all of them added up, each within ±12 dB. A graphic EQ's bands are
+    /// averaged in each region; the Studio EQs' Bass and Treble are shelves, so they count in full for the lows and
+    /// the highs, and their mid bands, which are narrower, count by half where their frequency is.
+    /// nil without an EQ.
+    static func eqShape(_ tone: Tone) -> (low: Double, mid: Double, high: Double)? {
+        func region(_ hz: Double) -> Int { hz < 300 ? 0 : hz < 2000 ? 1 : 2 }
+        var shape = [0.0, 0.0, 0.0], any = false
+        for item in tone.gear.values {
+            switch item.key {
+            case "Pedal_EQ5", "Pedal_EQ8", "Bass_Pedal_BassEQ8":   // knobs named by their frequency in Hz
+                var sums = [0.0, 0.0, 0.0], counts = [0.0, 0.0, 0.0]
+                for (name, gain) in item.knobs {
+                    guard let hz = Double(name) else { continue }
+                    sums[region(hz)] += gain
+                    counts[region(hz)] += 1
+                }
+                for r in 0..<3 where counts[r] > 0 { shape[r] += sums[r] / counts[r] }
+                any = true
+            case "Rack_StudioEQ", "Rack_StudioGraphicEQ":           // the mid bands' frequency in Hz, or kHz under 20
+                shape[0] += item.knobs["Bass"] ?? 0
+                shape[2] += item.knobs["Treble"] ?? 0
+                for band in ["LoMid", "Mid", "HiMid"] {
+                    guard let gain = item.knobs[band], let f = item.knobs[band + "Freq"] else { continue }
+                    shape[region(f < 20 ? f * 1000 : f)] += gain / 2
+                }
+                any = true
+            default:
+                continue
+            }
+        }
+        guard any else { return nil }
+        let clamp = { (x: Double) in min(max(x, -12), 12) }
+        return (clamp(shape[0]), clamp(shape[1]), clamp(shape[2]))
+    }
+
+    /// dB of an EQ's shape onto an amp's tone knob: ±12 dB is half the knob's travel, as on the amps whose knobs are in dB
+    static let eqKnobPerDB = 100.0 / 24
+
+    /// The amp's tone knob with the tone's EQ folded in, 0-100; nil where the amp has no such knob.
+    static func toneKnobWithEQ(_ tone: Tone, _ name: String) -> Double? {
+        guard let knob = toneKnob(tone.gear["Amp"], name) else { return nil }
+        guard let eq = eqShape(tone) else { return knob }
+        let db = name == "Bass" ? eq.low : name == "Mid" ? eq.mid : eq.high
+        return min(max(knob + db * eqKnobPerDB, 0), 100)
+    }
+
+    /// The Lo-Fi Filter's mix, 0-100, where the tone has one: how far a band limit goes
+    static func lofi(_ tone: Tone) -> Double? {
+        tone.gear.values.first { $0.key == "Pedal_LoFiFilter" }.map { $0.knobs["Mix"] ?? 100 }
+    }
+
     /// What a device profile's knobs read (Profile.knobSources), as the song's gear sets them; what
     /// the tone doesn't have is left out. The drive isn't here: it depends on the song (corrected).
     static func values(_ tone: Tone) -> [String: Double] {
@@ -203,6 +255,8 @@ enum Rig {
         let all: [String: Double?] = [
             "gain": amp.flatMap(gain), "bass": toneKnob(amp, "Bass"), "mid": toneKnob(amp, "Mid"),
             "treble": toneKnob(amp, "Treble"), "presence": amp?.knobs["Pres"],
+            "bass_eq": toneKnobWithEQ(tone, "Bass"), "mid_eq": toneKnobWithEQ(tone, "Mid"),
+            "treble_eq": toneKnobWithEQ(tone, "Treble"), "lofi": lofi(tone),
             "delay_time": fx.delay?.time, "delay_mix": fx.delay?.mix, "delay_feedback": fx.delay?.feedback,
             "reverb_mix": fx.reverb?.mix, "modulation_mix": fx.mod?.mix, "modulation_rate": fx.mod?.rate,
             "overdrive_gain": fx.overdrive?.gain, "overdrive_tone": fx.overdrive?.tone, "distortion_gain": fx.distortion?.gain,

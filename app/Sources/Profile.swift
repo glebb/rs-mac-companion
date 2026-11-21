@@ -119,6 +119,7 @@ struct Profile: Equatable, Identifiable {
         "delay_time": [0, 2000], "delay_mix": [0, 100], "delay_feedback": [0, 100],
         "reverb_mix": [0, 100], "modulation_mix": [0, 100], "modulation_rate": [0, 100],
         "overdrive_gain": [0, 100], "overdrive_tone": [0, 100], "distortion_gain": [0, 100],
+        "bass_eq": [0, 100], "mid_eq": [0, 100], "treble_eq": [0, 100], "lofi": [0, 100],
     ]
 
     /// Used when no profile can be read: nothing but the category Program Changes, from the

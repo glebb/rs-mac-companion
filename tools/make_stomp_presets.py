@@ -29,9 +29,14 @@ INPUT_STAGE = {"@model": "HD2_CompressorDeluxeComp", "Threshold": 0.0, "Ratio": 
 INPUT, DISTORTION, OVERDRIVE, AMP, PHASER, CHORUS, DELAY, REVERB = ("block%d" % i for i in range(8))
 CC = {"lead": 20, "chorus": 21, "phaser": 22, "delay": 24, "reverb": 25, "gain": 26, "bass": 27, "mid": 28, "treble": 29,
       "presence": 30, "delay_time": 31, "delay_feedback": 33, "delay_mix": 34, "reverb_mix": 35, "modulation_mix": 36,
-      "level": 37, "input": 39, "overdrive": 40, "overdrive_gain": 41, "overdrive_tone": 42, "distortion": 43, "distortion_gain": 44}
+      "level": 37, "input": 39, "overdrive": 40, "overdrive_gain": 41, "overdrive_tone": 42, "distortion": 43, "distortion_gain": 44,
+      "low_cut": 45, "high_cut": 46}
+# A Lo-Fi Filter takes the cab's cuts from Line 6's defaults towards tonehost's band limit, by its mix
+LOFI = {"LowCut": 400.0, "HighCut": 3000.0}
+# The amp's tone knobs with the song's EQs folded in (Rig.eqShape): what CC 27-29 follow, and the level's formula with them
+EQ_SOURCE = {"bass": "bass_eq", "mid": "mid_eq", "treble": "treble_eq"}
 # CC: (the tone's setting, block, parameter, value at CC 0, at CC 127)
-KNOBS = [(CC["bass"], "bass", AMP, "Bass", 0, 1), (CC["mid"], "mid", AMP, "Mid", 0, 1), (CC["treble"], "treble", AMP, "Treble", 0, 1),
+KNOBS = [(CC["bass"], "bass_eq", AMP, "Bass", 0, 1), (CC["mid"], "mid_eq", AMP, "Mid", 0, 1), (CC["treble"], "treble_eq", AMP, "Treble", 0, 1),
          (CC["presence"], "presence", AMP, "Presence", 0, 1),
          (CC["delay_time"], "delay_time", DELAY, "Time", 0, 2), (CC["delay_feedback"], "delay_feedback", DELAY, "Feedback", 0, 1),
          (CC["delay_mix"], "delay_mix", DELAY, "Mix", 0, 1), (CC["reverb_mix"], "reverb_mix", REVERB, "Mix", 0, 1),
@@ -113,7 +118,9 @@ def preset(amp, frame, M, calibration, cab_range):
     controls = {AMP: {gain: midi(0, calibration["drive"], CC["gain"]),
                       volume: midi(amp_block[volume], round(amp_block[volume] * LEAD_LIFT, 3), CC["lead"])},
                 INPUT: {"Level": midi(low, round(low + rise, 2), CC["input"])},
-                "cab0": {"Level": midi(cab_range[0], cab_range[1], CC["level"])}}
+                "cab0": {"Level": midi(cab_range[0], cab_range[1], CC["level"]),
+                         "LowCut": midi(d["cab0"]["LowCut"], LOFI["LowCut"], CC["low_cut"]),
+                         "HighCut": midi(d["cab0"]["HighCut"], LOFI["HighCut"], CC["high_cut"])}}
     for cc, _, where, param, lo, hi in KNOBS:
         if param in d[where]:
             controls.setdefault(where, {})[param] = midi(lo, hi, cc)
@@ -164,7 +171,20 @@ def compact(value):
     return json.dumps(value, separators=(", ", ": "))
 
 
-def profile(slots, amps, calibration, cab_range):
+def lofi_knobs(cab):
+    """CC 45 and 46 for a Lo-Fi Filter: the cab's cuts from its defaults (CC 0, also for a tone without one) towards
+    tonehost's band limit, along a log of the frequency by the pedal's mix: at a mix of 22, the median, a high cut at
+    20.1 kHz goes to 13 kHz. The Stomp moves a controlled parameter in a straight line from its min to its max, so the
+    points are where on that line each mix's frequency is."""
+    out = []
+    for cc, param in ((CC["low_cut"], "LowCut"), (CC["high_cut"], "HighCut")):
+        start, end = cab[param], LOFI[param]
+        points = [[m, round(start * (end / start) ** (m / 100), 1)] for m in (0, 10, 25, 50, 75, 100)]
+        out.append({"cc": cc, "range": [start, end], "default": 0, "sum": [{"from": "lofi", "points": points}]})
+    return out
+
+
+def profile(slots, amps, calibration, cab_range, cabs):
     """A DI is what acoustic parts use: it says nothing of the song's amp, so it doesn't pick a preset."""
     pc = {amp: FIRST_PC + i for i, amp in enumerate(slots)}
     games = [(game, amp) for game, amp in sorted(amps.items()) if amp in pc and not game.startswith("DI_")]
@@ -178,7 +198,9 @@ def profile(slots, amps, calibration, cab_range):
     knobs += [{"cc": cc, "from": source} for cc, source, *_ in KNOBS]
     amp_knobs = []
     for game, amp in games:
-        own = [{"cc": CC["level"], "range": cab_range, "sum": calibration[amp]["cab_db"]}]
+        terms = [dict(t, **{"from": EQ_SOURCE.get(t["from"], t["from"])}) if "from" in t else t for t in calibration[amp]["cab_db"]]
+        own = [{"cc": CC["level"], "range": cab_range, "sum": terms}]
+        own += lofi_knobs(cabs[amp])
         least = calibration[amp].get("least_gain", 0)
         if least > 0:  # an amp that goes silent near the bottom of its gain: its Drive stays at tonehost's least
             own.insert(0, {"cc": CC["gain"], "range": [0, 100], "sum": [{"from": "gain", "points": [[0, least], [least, least], [100, 100]]}]})
@@ -245,9 +267,10 @@ def main():
     for f in os.listdir(out):
         if f.endswith(".hlx"):
             os.remove(os.path.join(out, f))
-    worst = 0.0
+    worst, cabs = 0.0, {}
     for i, amp in enumerate(slots):
         h = preset(amp, frame, M, calibration[amp], cab_range)
+        cabs[amp] = {k: h["data"]["tone"]["dsp0"]["cab0"][k] for k in LOFI}
         load = check(h, M)
         if load > BUDGET:
             sys.exit("%s: %.2f is over the DSP budget" % (amp, load))
@@ -255,7 +278,7 @@ def main():
         name = "%s %s.hlx" % (slot_name(FIRST_PC + i), amp[3:])
         json.dump(h, open(os.path.join(out, name), "w"), indent=1, sort_keys=True)
         print("%s  %.2f DSP" % (name, load))
-    open(os.path.join(ROOT, "profiles", "hx-stomp-amps.json"), "w").write(profile(slots, spec["amps"], calibration, cab_range))
+    open(os.path.join(ROOT, "profiles", "hx-stomp-amps.json"), "w").write(profile(slots, spec["amps"], calibration, cab_range, cabs))
     print("%d presets, heaviest %.2f of %.1f" % (len(slots), worst, BUDGET))
 
 

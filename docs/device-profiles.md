@@ -100,6 +100,8 @@ fixed sounds:
 | `drive` | 0–1 | how distorted the tone should sound: see below |
 | `gain` | 0–100 | the amp's gain knob, as the song sets it |
 | `bass`, `mid`, `treble`, `presence` | 0–100 | the amp's knobs. Not every amp has them all. Nine bass amps have Bass, Mid and Treble in dB, -12 to 12: those come as 0 to 100 too, 0 dB at 50 |
+| `bass_eq`, `mid_eq`, `treble_eq` | 0–100 | the same knobs with the broad shape of the tone's EQ pedals and racks folded in: what they raise or cut under 300 Hz, to 2 kHz and above, ±12 dB at most, as ±50 on the knob. A Studio EQ's Bass and Treble count in full, its mid bands by half. Missing where the amp has no such knob |
+| `lofi` | 0–100 | the Lo-Fi Filter's mix, for a band limit. Missing without one |
 | `delay_time` | 0–2000 | in ms |
 | `delay_mix`, `delay_feedback` | 0–100 | |
 | `reverb_mix` | 0–100 | |

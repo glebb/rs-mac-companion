@@ -118,11 +118,25 @@
       }
      },
      "cab0": {
+      "HighCut": {
+       "@cc": 46,
+       "@controller": 8,
+       "@max": 3000.0,
+       "@min": 16000.0,
+       "@snapshot_disable": false
+      },
       "Level": {
        "@cc": 37,
        "@controller": 8,
        "@max": 6.0,
        "@min": -60.0,
+       "@snapshot_disable": false
+      },
+      "LowCut": {
+       "@cc": 45,
+       "@controller": 8,
+       "@max": 400.0,
+       "@min": 19.9,
        "@snapshot_disable": false
       }
      }

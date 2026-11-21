@@ -183,13 +183,14 @@ The chain, in order:
 | 20 | Ch Vol, for Lead | ×1.15, about +1.2 dB |
 | 21, 22, 24, 25 | Bypass: chorus, phaser, delay, reverb | |
 | 26 | The amp's Drive, from the game's gain knob | 0–9.3, or 0–6 on Cali Rectifire, Das Benzin Mega, Mandarin Rocker and Solo Lead OD. Never under tonehost's least on the amps that go silent near the bottom of their gain: see [How hard](#how-hard) |
-| 27–30 | Bass, Mid, Treble, Presence | full range. An amp without one ignores it. On the nine bass amps whose knobs are in dB, 0 dB is the middle |
+| 27–30 | Bass, Mid, Treble, Presence | full range. An amp without one ignores it. On the nine bass amps whose knobs are in dB, 0 dB is the middle. Bass, Mid and Treble carry the song's EQs too: see [EQs](#eqs) |
 | 31, 33, 34 | Delay time, feedback, mix | 0–2 s, full range |
 | 35, 36 | Reverb mix, chorus mix | full range |
 | 37 | The cab's Level: the tone's level | -60 to +6 dB, from a formula per amp: see below |
 | 39 | The input, from the game's gain knob | -8 dB, up 28 dB to gain 100, or 39.5 dB with a boost pedal; 18 dB on the four amps above |
 | 40, 41, 42 | The Minotaur: bypass, Gain, Tone | from the boost pedal's gain (×0.98) and tone |
 | 43, 44 | The Chainsaw: bypass, Drive | from the pedal's gain (×0.98) |
+| 45, 46 | The cab's Low Cut and High Cut | from Line 6's defaults for the cab at CC 0 towards 400 Hz and 3 kHz at 127, for a Lo-Fi Filter: see [EQs](#eqs) |
 
 CC 32 is left out: it's MIDI's Bank Select, and Helix Native picks a setlist with it. CC 23 and CC 38 do
 nothing on these presets. The three snapshots play alike, as tonehost has no categories: a tone's category
@@ -212,6 +213,29 @@ that Drive, from 11 on US Double Nrm to 33 on Mandarin Rocker. calibration.json 
 The tone's drive and category play no part in this. Big City Nights' Bluesbreaker at gain 73 with a
 SuperDrive, which came out clean before, now gets its input raised 20.8 dB, Drive 6.8 and the Minotaur, as
 in tonehost.
+
+### EQs
+
+Four in ten of the game's pedals and racks are EQs, and 7,942 of 8,899 guitar and bass tones in one library have
+one, mostly the Studio Parametric EQ rack. tonehost gives each its own Helix EQ block. The Stomp has no block to
+spare, so RS Companion folds an EQ's broad shape into the amp's own tone knobs (`bass_eq`, `mid_eq` and
+`treble_eq` in [the profile's knobs](../docs/device-profiles.md#knobs)): what the tone's EQs raise or cut under
+300 Hz goes on Bass, to 2 kHz on Mid, above on Treble, ±12 dB as half the knob's travel. A graphic EQ's bands are
+averaged in each region; a Studio EQ's Bass and Treble are shelves and count in full, its mid bands by half. In
+that library the shift is a median 1 dB on Bass and Mid and 2 dB on Treble, and 90% of tones are within 4 to 6.5 dB;
+under 1.5% reach the ±12 dB limit. The level's formula follows the knobs as they are sent, EQ and all.
+
+An amp's tone stack isn't an EQ: its knobs act on broad, overlapping bands, and how much depends on the amp and how
+hard it's driven. So this is the EQ's direction and rough size, not its curve, and narrow cuts and boosts are lost.
+Where the amp has no knob for a region (many have no Mid), that part of the EQ is left out.
+
+The Lo-Fi Filter is a band limit, 400 Hz to 3 kHz in tonehost, which doesn't follow its knobs. On the Stomp it
+moves the cab's Low Cut and High Cut (CC 45 and 46) from Line 6's defaults for the cab towards those, by the
+pedal's Mix, along a log of the frequency: a mix of 22, the library's median, takes a high cut at 20.1 kHz to 13
+kHz. tonehost cuts in full whatever the mix, which at 22 would sound far thinner than the game's blend.
+
+Not heard on a Stomp: the fold, the Mix scaling and the controllers on the cab's cuts are new (21 November 2026).
+They add controllers to every preset per amp, so all 35 need importing again.
 
 ### Level
 
@@ -239,7 +263,7 @@ distortion pedal about 2.8 dB (medians over the 35 amps).
 **Since 21 November 2026** (the phrase, the least gain): every amp reaches the target from gain 0, where 19 amps
 fell short at low gains before, by up to 64 dB (Agua 51, Woody Blue). Woody Blue is still 1 dB short at its
 quietest. The tone knobs' formula misses by less on most amps, since the phrase hears the Bass knob less than
-the pluck did. The output block's level changed in 28 presets, so import those again: their files changed.
+the pluck did. The output block's level changed in 28 presets (and every preset has since gained the [EQs](#eqs)' controllers).
 The check on 672 tones below is from before then, and hasn't been run again.
 
 Checked on 672 guitar tones from a library, picked at random: each measured in Native as the Stomp plays it
@@ -256,7 +280,8 @@ acoustic emulator.
 **What it leaves out:**
 
 - tonehost's compressor, octaves, wah, acoustic emulator, flanger and tremolo aren't on the Stomp, so tones
-  with them sound different, and the formula doesn't count them.
+  with them sound different, and the formula doesn't count them. Nor does it count an EQ's own level: only
+  what the tone knobs it moves change.
 - A tone knob's effect depends on how hard the amp is driven, and the formula takes its average: it misses
   by 1 to 3 dB on most amps at a knob's end, and up to 7.6 dB on Woody Blue and 5 to 6 dB on the bass amps
   (SV Beast, Agua Sledge).
