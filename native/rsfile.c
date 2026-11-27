@@ -1,6 +1,7 @@
 // rsfile: see rsfile.h.
 //
-// .psarc: big-endian 32-byte header ("PSAR", version, "zlib", toc length, toc entry size,
+// .psarc: big-endian 32-byte header ("PSAR", or "PSXR" for an RS Extended Range native package: a plain archive of
+// the same layout, its table of contents and song files unencrypted; version, "zlib", toc length, toc entry size,
 // entry count, block size, flags). Flag 4 = the table of contents after the header is
 // AES-256-CFB encrypted with a fixed key. Entries are 30 bytes: MD5 of the path (16),
 // block index (u32), uncompressed length (u40), offset (u40). A uint16 block-size table
@@ -10,6 +11,10 @@
 // .sng (Mac): u32 0x4A, u32 flags, 16-byte IV, then AES-256-CTR (fixed Mac key) over
 // u32 plain length + zlib data. The plain SNG is a sequence of length-prefixed arrays
 // (little-endian); the tone changes come after 12 arrays of fixed-size records (except one).
+// An unencrypted .sng (flags 1, as DotCharter writes plain packages) has the plain length + zlib right after the IV slot.
+// An RS Extended Range native chart (7- or 8-string guitar, 5- or 6-string bass) starts its plain body with an 8-byte
+// header, "SNXR", version 1, instrument (0 guitar, 1 bass), string count N, 0, and then the same arrays with N-wide
+// records: a chord template 36 + 6N bytes, a chord notes record 396N (6 strings: 72 and 2376, the stock sizes).
 #include "rsfile.h"
 
 #include <CommonCrypto/CommonCryptor.h>
@@ -79,7 +84,7 @@ rs_psarc *rs_psarc_open(const char *path) {
     uint8_t h[32], *toc = NULL, *plain = NULL;
     char *names = NULL;
     if (!p || !(p->f = fopen(path, "rb"))) goto fail;
-    if (fread(h, 1, 32, p->f) != 32 || memcmp(h, "PSAR", 4)) goto fail;
+    if (fread(h, 1, 32, p->f) != 32 || (memcmp(h, "PSAR", 4) && memcmp(h, "PSXR", 4))) goto fail;
     uint32_t toc_len = be32(h + 12), esize = be32(h + 16), count = be32(h + 20), flags = be32(h + 28);
     p->block = be32(h + 24);
     p->toc_end = toc_len;
@@ -188,21 +193,31 @@ static int skip_array(const uint8_t *d, size_t len, size_t *at, size_t rec, int3
     return 1;
 }
 
+// key NULL: an unencrypted file (flags 1)
 static uint8_t *sng_plain_key(const uint8_t *sng, size_t len, size_t *plain_len, const uint8_t key[32]) {
     if (len < 24 || le32(sng) != 0x4A) return NULL;
     const uint8_t *iv = sng + 8;
     size_t clen = len - 24;
     uint8_t *dec = malloc(clen ? clen : 1);
     if (!dec) return NULL;
-    CCCryptorRef c;
-    size_t moved = 0;
-    if (CCCryptorCreateWithMode(kCCDecrypt, kCCModeCTR, kCCAlgorithmAES, ccNoPadding, iv, key, 32, NULL, 0, 0, kCCModeOptionCTR_BE, &c) != kCCSuccess) {
-        free(dec);
-        return NULL;
+    if (!key) {
+        memcpy(dec, sng + 24, clen);
+    } else {
+        CCCryptorRef c;
+        size_t moved = 0;
+        if (CCCryptorCreateWithMode(kCCDecrypt, kCCModeCTR, kCCAlgorithmAES, ccNoPadding, iv, key, 32, NULL, 0, 0,
+                                    kCCModeOptionCTR_BE, &c) != kCCSuccess) {
+            free(dec);
+            return NULL;
+        }
+        CCCryptorStatus st = CCCryptorUpdate(c, sng + 24, clen, dec, clen, &moved);
+        CCCryptorRelease(c);
+        if (st != kCCSuccess) {
+            free(dec);
+            return NULL;
+        }
     }
-    CCCryptorStatus st = CCCryptorUpdate(c, sng + 24, clen, dec, clen, &moved);
-    CCCryptorRelease(c);
-    if (st != kCCSuccess || clen < 4) {
+    if (clen < 4) {
         free(dec);
         return NULL;
     }
@@ -233,8 +248,9 @@ static uint8_t *sng_plain_key(const uint8_t *sng, size_t len, size_t *plain_len,
     return d;
 }
 
-// Mac first, then Windows: with the wrong key the zlib stream doesn't check out.
+// An unencrypted file as it is; else Mac first, then Windows: with the wrong key the zlib stream doesn't check out.
 uint8_t *rs_sng_plain(const uint8_t *sng, size_t len, size_t *plain_len) {
+    if (len >= 24 && le32(sng) == 0x4A && le32(sng + 4) == 1) return sng_plain_key(sng, len, plain_len, NULL);
     uint8_t *d = sng_plain_key(sng, len, plain_len, SNG_KEY_MAC);
     return d ? d : sng_plain_key(sng, len, plain_len, SNG_KEY_PC);
 }
@@ -246,13 +262,22 @@ int rs_sng_tones(const uint8_t *sng, size_t len, rs_tone_change **out) {
     if (!d) return -1;
     int ok = 1;
 
-    // Arrays before the tones (record sizes as in Rocksmith2014.NET's Types/*.fs, MIT).
-    size_t at = 0;
+    // Arrays before the tones (record sizes as in Rocksmith2014.NET's Types/*.fs, MIT); an extended-range chart's
+    // header first, and its chord records N strings wide
+    size_t at = 0, strings = 6;
+    if (plen >= 8 && !memcmp(d, "SNXR", 4)) {
+        if (d[4] != 1 || d[5] > 1 || d[6] < 4 || d[6] > 8) {
+            free(d);
+            return -1;
+        }
+        strings = d[6];
+        at = 8;
+    }
     int32_t vocals = 0, nld = 0;
-    ok = skip_array(d, plen, &at, 16, NULL)          // beats
-         && skip_array(d, plen, &at, 44, NULL)       // phrases
-         && skip_array(d, plen, &at, 72, NULL)       // chords
-         && skip_array(d, plen, &at, 2376, NULL)     // chord notes
+    ok = skip_array(d, plen, &at, 16, NULL)                      // beats
+         && skip_array(d, plen, &at, 44, NULL)                   // phrases
+         && skip_array(d, plen, &at, 36 + 6 * strings, NULL)     // chords
+         && skip_array(d, plen, &at, 396 * strings, NULL)        // chord notes
          && skip_array(d, plen, &at, 60, &vocals);   // vocals
     if (ok && vocals > 0)
         ok = skip_array(d, plen, &at, 32, NULL)      // symbol headers
