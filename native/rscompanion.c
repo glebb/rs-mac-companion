@@ -1909,16 +1909,19 @@ static void rc_init(void) {
     if (!target) return;
     g_lp = !strcmp(target(), "win-x86");
     if (!g_lp && strcmp(target(), "mac-x64")) return;
-    const char *e = g_lp ? getenv("LP_GAME_DIR") : NULL, *folder = g_lp ? "learn-play/" : "";
-    char file[1024];
-    snprintf(file, sizeof file, "%s/Library/Application Support/RS Re-ARMed/%sgame-dir", getenv("HOME"), folder);
+    // The install's folder: RS_NATIVE_HOME (the Mac edition's launcher sets it; a test install has its own) or
+    // LP_HOME (Learn & Play's), else the player's own under ~/Library/Application Support/RS Re-ARMed
+    const char *e = g_lp ? getenv("LP_GAME_DIR") : NULL, *home = getenv(g_lp ? "LP_HOME" : "RS_NATIVE_HOME");
+    char base[1024];
+    if (home && *home) snprintf(base, sizeof base, "%s", home);
+    else snprintf(base, sizeof base, "%s/Library/Application Support/RS Re-ARMed%s", getenv("HOME"), g_lp ? "/learn-play" : "");
+    char file[1100];
+    snprintf(file, sizeof file, "%s/game-dir", base);
     FILE *f = e && *e ? NULL : fopen(file, "r");
     if (e && *e) snprintf(g_lp_game_dir, sizeof g_lp_game_dir, "%s", e);
     else if (f && fgets(g_lp_game_dir, sizeof g_lp_game_dir, f)) g_lp_game_dir[strcspn(g_lp_game_dir, "\r\n")] = 0;
     if (f) fclose(f);
-    if (!g_lp_game_dir[0])
-        snprintf(g_lp_game_dir, sizeof g_lp_game_dir, "%s/Library/Application Support/RS Re-ARMed/%sgame",
-                 getenv("HOME"), folder);
+    if (!g_lp_game_dir[0]) snprintf(g_lp_game_dir, sizeof g_lp_game_dir, "%s/game", base);
     if (!hook || hook("frontend_open_file", lp_on_open_file, NULL, NULL))
         logline(g_lp ? "Learn & Play: no frontend_open_file hook point: songs won't be seen"
                      : "RS Re-ARMed: no frontend_open_file hook point: songs are seen only by the game's file calls");
