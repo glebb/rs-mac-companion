@@ -56,7 +56,7 @@ Paths that matter, per arrangement `<key>_<part>` (e.g. `skid18an_lead`):
 | `SongKey` | `Skid18an` (case varies; file names use lower case) |
 | `ArrangementName` | `Lead`, `Rhythm`, `Bass`, `Combo`, `Vocals` |
 | `Tone_Base`, `Tone_A` … `Tone_D` | tone keys per slot, e.g. `skid18an_clean` (empty if unused) |
-| `Tuning` | semitones per string, low to high: `{"string0": -2, "string1": 0, …}` (Drop D) |
+| `Tuning` | semitones per string, low to high: `{"string0": -2, "string1": 0, …}` (Drop D); bass: the first 4 count. RS Extended Range charts: [below](#rs-extended-range-charts) |
 | `CentOffset` | cents from A440, e.g. `-50.0` for songs a quarter tone down |
 | `SongAverageTempo` | average BPM, e.g. `95.0` |
 | `SongLength` | seconds, e.g. `177.441` |
@@ -76,7 +76,10 @@ so the gain only tells crunch from high gain together with the amp model.
 The song index keeps each tone's whole gear list as `rig`, every item's knobs named without the
 key's prefix: `{"Amp": {"key": "Amp_TW40", "knobs": {"Gain": 83, "Bass": 55, …}},
 "PrePedal2": {"key": "Pedal_GermaniumDrive", "knobs": {"Gain": 45, "Tone": 65}}, …}`, and each
-arrangement's `tuning` (six offsets, or null), `centOffset`, `tempo` and `length` (or null).
+arrangement's `tuning` (six offsets from E standard, or null; for an RS Extended Range chart its stock six or
+four strings, [below](#rs-extended-range-charts)), `strings` (the string count), `tuningPositional` (an extended
+chart's offsets as its manifest has them), `lowString` (the lowest string in semitones from E2, bass E1, with the
+cent offset), `tuningName`, `centOffset`, `tempo` and `length` (or null).
 
 Tone keys are almost always specific to one song (97% of the 7,177 keys in a library of
 ~2,400 archives), shared between the parts of that song (38% are used by more than one part). The 3% used
@@ -113,6 +116,37 @@ slot whose tone key equals the current one is no audible change.
 `rs_sng_tones()` decrypts, inflates and walks to the tones; for a typical arrangement it takes
 1–2 ms. Sizes read from files are capped (64 MB), so a corrupt file fails fast instead of
 allocating gigabytes.
+
+## RS Extended Range charts
+
+[RS Extended Range](https://github.com/SomeeName/rs-extended-range)'s native charts (7- or 8-string
+guitar, 5- or 6-string bass) come in their own form of the files above; `rsfile.c` reads it:
+
+- The archive starts with `PSXR` instead of `PSAR`: the same layout, its table of contents not encrypted.
+- Its `.sng` files have flags 1 and are not encrypted: the plain length and zlib stream follow the
+  IV slot as they are.
+- A chart's plain SNG starts with an 8-byte header: `SNXR`, version 1, instrument (0 guitar, 1 bass),
+  the string count N, 0. Its arrays follow as above, the chord records N strings wide: a chord
+  36 + 6N bytes, a chord notes record 396N (the stock 72 and 2376 for 6). The vocals and a 6-string
+  part of the same song are stock files.
+- The manifest (and the `.hsan`) has `"ExtendedRange": {"Version": 1}`, and its `Tuning` is
+  positional: `string0` … `string{N-1}`, thickest string first, each an offset from *that* string's
+  standard pitch. Standard: guitar 8 F#1 B1 E2 A2 D3 G3 B3 E4, guitar 7 from B1; bass 6 B0 E1 A1 D2
+  G2 C3, bass 5 to G2. A 6-string guitar or 4-string bass with `ExtendedRange` is stock.
+
+How the companion reads them, the same in `rsfile.c` (`rs_json_tuning`, `rstool tones`), `rig.py`
+and `Rig.swift`:
+
+- The stock strings: a guitar's top six (positional N−6 … N−1), a bass's four after the low B
+  (positional 1–4; a 6-string's high C is extra on top). The index's `tuning` holds them (bass: the
+  four, then the high C or 0), so readers of the six offsets stay right.
+- The lowest string: its standard pitch from the stock low string plus its offset plus `CentOffset`/100:
+  guitar 7 −5 + string0, guitar 8 −10 + string0, bass 5 and 6 −5 + string0.
+- The name, from all N strings: all at the same offset r: "*note* standard (N-string)", the note
+  the lowest standard string's plus r ("B standard (7-string)", "F# standard (8-string)", "B
+  standard (5-string)"); the lowest r − 2 and the rest r: "Drop *note* (N-string)" ("Drop A
+  (5-string)"); else "custom (N-string)". Stock names are unchanged ("E standard", "Drop D",
+  "custom"; cents don't count).
 
 ## Known bad files
 

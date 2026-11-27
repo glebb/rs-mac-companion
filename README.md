@@ -138,6 +138,19 @@ Changed tones show a pencil and what they'd be automatically; ↺ puts them back
 - stream overlays (below);
 - open at login (install the app in /Applications first).
 
+### RS Extended Range songs
+
+Charts made for [RS Extended Range](https://github.com/SomeeName/rs-extended-range) in its native form
+(7- and 8-string guitar, 5- and 6-string bass, in its `PSXR` packages, Mac or PC) are read like any
+other song: their tones, tone changes and tuning. Their tuning is named with the string count:
+"B standard (7-string)", "F# standard (8-string)", "B standard (5-string)", "Drop A (5-string)"
+(the lowest string two semitones under the rest), otherwise "custom (8-string)" and so on. A
+6-string or 4-string part, also one in the same song, keeps the usual names ("Drop B"). The lowest
+string counts from E (E1 on bass) for the song's heaviness and for `low_string` in
+[song tone messages](#song-tone-messages): a 7-string's low B is −5, as on a guitar in B standard.
+The stream overlays get the same names in RockSniffer's capitals ("B Standard (7-string)"), with
+the six (bass: four) strings a stock guitar has.
+
 ### RockNRoller
 
 RS Companion also follows [RockNRoller](docs/rocknroller.md), a Rocksmith chart player for macOS
@@ -429,6 +442,7 @@ with it):
 ./tests/run_standin_test.sh   # rstone.py + rsprobe in a stand-in game (~70 s)
 ./tests/run_classify_test.sh  # classify_songs.py with a stand-in for the API, on some songs from your index (seconds)
 ./tests/run_ai_app_test.sh    # the app's AI classification and how presets use the answers, with a stand-in API (seconds)
+./tests/run_extended_range_test.sh # tunings of RS Extended Range and stock songs in rstool, rig.py and the app (seconds; no game needed: the packages in ~/rs-gametest/fixtures, or RS_FIXTURES, skipped without them)
 ```
 
 The stand-ins imitate what the game does: file reads, arrangement objects, a song timer, decoy

@@ -66,9 +66,9 @@ For example (the effect values are illustrative):
 |---|---|---|
 | `song`, `artist` | text | as the game shows them |
 | `arrangement` | text | the part being played, e.g. `skid18an_lead` |
-| `heaviness` | 0–1, may be missing | how heavy the song is: the drive of the tone its rhythm part (else combo, else lead) plays longest, plus 0.1 when the low string is tuned to C or lower. The same score as `songs.csv` |
+| `heaviness` | 0–1, may be missing | how heavy the song is: the drive of the tone its rhythm part (else combo, else lead) plays longest, plus 0.1 when the lowest string is at C or lower. The same score as `songs.csv` |
 | `tempo` | beats per minute, may be missing | the arrangement's average tempo, e.g. for a delay with no time of its own |
-| `low_string` | semitones, may be missing | the low string's tuning relative to E standard, with its cent offset (−2 = D standard or drop D) |
+| `low_string` | semitones, may be missing | the lowest string's pitch relative to E standard's low E (bass: E1), with its cent offset (−2 = D standard or drop D). An RS Extended Range chart counts its extra strings: −5 for a 7-string or 5-string bass in B standard, −10 for an 8-string in F# standard |
 | `style` | text | a label for the song: set for it in `presets.json`, else the AI's answer, else picked from its heaviness (see [Styles](#styles)) |
 | `styles` | list of text | every label a song can get, so a receiver can prepare for each in advance |
 | `main_amp` | text, may be missing | the Rocksmith amp the arrangement plays longest |
