@@ -25,22 +25,57 @@ enum Rig {
         let tones: [Tone]
         let changes: [(time: Double, id: Int)]  // id 0-3 = slots A-D
         let length: Double?
-        let lowString: Double           // the low string's tuning in semitones, with the cent offset
+        let lowString: Double           // the lowest string in semitones from E2 (bass E1), with the cent offset
         let tempo: Double?
-        var strings: [Int] = []         // each string's tuning in semitones, low string first
+        var tuning: Tuning?             // nil if unknown
+    }
+
+    /// An arrangement's tuning, as native/rsfile.c's rs_json_tuning and rig.py's tuning_name read it. A stock
+    /// arrangement has string0..string5 (bass: the first 4 count), low string first, offsets from E standard. An RS
+    /// Extended Range chart ("ExtendedRange" in its manifest) with 7 or 8 guitar strings or 5 or 6 bass strings has
+    /// string0..string{N-1}, thickest first, each an offset from that string's own standard pitch (guitar 8: F#1 B1
+    /// E2 ..., 7 from B1; bass 5: B0 E1 A1 D2 G2, 6 and C3). One with 6 (guitar) or 4 (bass) strings is stock.
+    struct Tuning: Equatable {
+        let strings: Int                // N: 6 or 4 stock, 7-8 or 5-6 extended
+        let extended: Bool
+        let stock: [Double]             // the stock strings from E standard, low first: guitar the top six of an
+                                        // extended chart, bass its four after the low B, then the rest and 0
+        let positional: [Double]        // an extended chart's N offsets, thickest first (empty if stock)
+        let lowString: Double           // the lowest string in semitones from E2 (bass E1), with the cent offset
+        let name: String                // "Drop D", "custom", "B standard (7-string)", "Drop A (5-string)", ...
     }
 
     static let notes = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
 
-    /// "E standard", "Drop D", "Eb standard", ... or "custom" (nil if unknown), as rig.py's tuning_name.
-    static func tuningName(_ a: Arrangement) -> String? {
-        let strings = Array(a.strings.prefix(a.path == "Bass" ? 4 : 6))
-        guard let low = strings.first else { return nil }
-        let rest = Set(strings.dropFirst())
-        guard rest.count == 1, let r = rest.first else { return "custom" }
-        if low == r { return "\(notes[((4 + r) % 12 + 12) % 12]) standard" }
-        if low == r - 2 { return "Drop \(notes[((2 + r) % 12 + 12) % 12])" }
-        return "custom"
+    /// "E standard", "Drop D", "Eb standard", ..., "custom", and for an extended chart with its string count, "B
+    /// standard (7-string)" (nil if unknown), as rig.py's tuning_name.
+    static func tuningName(_ a: Arrangement) -> String? { a.tuning?.name }
+
+    /// The tuning from a manifest's attributes (Tuning, CentOffset, ExtendedRange), or nil without one it can read.
+    static func tuning(_ attributes: [String: Any], bass: Bool) -> Tuning? {
+        guard let t = attributes["Tuning"] as? [String: Any] else { return nil }
+        var v: [Double] = []
+        while v.count <= 8, let x = t["string\(v.count)"] as? NSNumber { v.append(x.doubleValue) }
+        let n = v.count, stock = bass ? 4 : 6, max = bass ? 6 : 8
+        guard n >= stock else { return nil }
+        let extended = n > stock && attributes["ExtendedRange"] != nil
+        if extended && n > max { return nil }
+        let count = extended ? n : stock
+        // The lowest string's standard pitch from the stock low string: guitar a fourth down per string added, bass B.
+        let base = !extended ? 0 : bass ? -5 : -5 * (n - 6)
+        let six = (0..<6).map { i -> Double in
+            let from = !extended ? i : bass ? 1 + i : n - 6 + i
+            return from < n ? v[from] : 0
+        }
+        let cents = (attributes["CentOffset"] as? NSNumber)?.doubleValue ?? 0
+        let ints = v.prefix(count).map { Int($0) }
+        let note = { (e: Int) in notes[((4 + e) % 12 + 12) % 12] }
+        let suffix = extended ? " (\(n)-string)" : ""
+        let r = ints[1], same = ints.dropFirst().allSatisfy { $0 == r }
+        let name = same && ints[0] == r ? "\(note(base + r)) standard\(suffix)"
+            : same && ints[0] == r - 2 ? "Drop \(note(base + r - 2))\(suffix)" : "custom\(suffix)"
+        return Tuning(strings: count, extended: extended, stock: six, positional: extended ? v : [],
+                      lowString: Double(base) + v[0] + cents / 100, name: name)
     }
 
     // MARK: Drive
@@ -302,8 +337,8 @@ enum Rig {
     }
 
     /// How heavy a song is, 0-1: the drive of the tone its rhythm part (else its combo or lead
-    /// part) plays longest, plus 0.1 when the low string is tuned down to C or lower. Of several
-    /// parts of a kind (combo, combo2) the first by name counts.
+    /// part) plays longest, plus 0.1 when the lowest string is at C or lower (also the B of an
+    /// extended-range 7-string). Of several parts of a kind (combo, combo2) the first by name counts.
     static func heaviness(_ arrangements: [Arrangement]) -> Double? {
         let sorted = arrangements.sorted { $0.name.lowercased() < $1.name.lowercased() }  // main part before alternates
         for path in ["Rhythm", "Combo", "Lead"] {
@@ -355,16 +390,13 @@ enum Rig {
                     free(list)
                 }
             }
-            let tuning = a["Tuning"] as? [String: Any]
-            let low = ((tuning?["string0"] as? NSNumber)?.doubleValue ?? 0)
-                + ((a["CentOffset"] as? NSNumber)?.doubleValue ?? 0) / 100
+            let tuning = Self.tuning(a, bass: kind == "Bass")
             out.append(Arrangement(
                 name: name, path: kind,
                 slots: ["Tone_Base", "Tone_A", "Tone_B", "Tone_C", "Tone_D"].map { a[$0] as? String ?? "" },
                 tones: ((a["Tones"] as? [[String: Any]]) ?? []).map(tone),
-                changes: changes, length: (a["SongLength"] as? NSNumber)?.doubleValue, lowString: low,
-                tempo: (a["SongAverageTempo"] as? NSNumber)?.doubleValue,
-                strings: (0..<6).compactMap { (tuning?["string\($0)"] as? NSNumber)?.intValue }))
+                changes: changes, length: (a["SongLength"] as? NSNumber)?.doubleValue, lowString: tuning?.lowString ?? 0,
+                tempo: (a["SongAverageTempo"] as? NSNumber)?.doubleValue, tuning: tuning))
         }
         return out
     }

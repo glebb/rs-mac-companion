@@ -87,7 +87,7 @@ def songs_from_index(presets):
         for a in arrs:
             if a["path"] not in rig.GUITAR_PATHS:
                 continue
-            tuning = tuning or rig.tuning_name(a.get("tuning"))
+            tuning = tuning or rig.arrangement_tuning_name(a)
             for i, tone_key in enumerate(a["slots"]):
                 t = tone_key and rig.tone_def(a, tone_key)
                 if not t:

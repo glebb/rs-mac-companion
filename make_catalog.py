@@ -60,7 +60,7 @@ with open(paths.SONGS_CSV, "w", newline="") as f:
                                            amp=t.get("amp", ""), gain=t.get("gain"),
                                            drive=rig.drive(t.get("rig") or {}, t.get("gain")))[0])
             row_drives.append(num(rig.drive(t.get("rig") or {}, t.get("gain"))))
-        tuning = rig.tuning_name(a.get("tuning"), bass=a["path"] == "Bass")
+        tuning = rig.arrangement_tuning_name(a)
         w.writerow([a["artist"], a["song"], a["songKey"], a["arrangement"], a["path"], tuning or "",
                     num(a.get("tempo")), num(heaviness[a["artist"].lower(), a["songKey"].lower()]), len(a["changes"])] +
                    a["slots"] + row_presets + row_drives + [os.path.basename(a["source"])])

@@ -382,6 +382,60 @@ int rs_json_num(const char *json, const char *key, double *out) {
     return 0;
 }
 
+static const char *ws(const char *p);
+
+static const char *const NOTES[12] = {"C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"};
+
+static const char *note(int semitones_from_e) { return NOTES[((4 + semitones_from_e) % 12 + 12) % 12]; }
+
+int rs_json_tuning(const char *json, int bass, rs_tuning *out) {
+    memset(out, 0, sizeof *out);
+    // The Tuning object alone (it holds only numbers), so a missing string isn't found further on.
+    const char *open = strstr(json, "\"Tuning\"");
+    if (!open) return 0;
+    open = ws(open + 8);
+    if (*open++ != ':' || *(open = ws(open)) != '{') return 0;
+    const char *close = strchr(open, '}');
+    if (!close || close - open > 1024) return 0;
+    char obj[1040];
+    snprintf(obj, sizeof obj, "%.*s", (int)(close - open + 1), open);
+    double v[RS_MAX_STRINGS + 1];
+    int n = 0;
+    for (; n <= RS_MAX_STRINGS; n++) {
+        char key[16];
+        snprintf(key, sizeof key, "string%d", n);
+        if (!rs_json_num(obj, key, &v[n])) break;
+    }
+    int stock = bass ? 4 : 6, max = bass ? 6 : 8;
+    if (n < stock) return 0;
+    double cents = 0;
+    rs_json_num(json, "CentOffset", &cents);
+    out->extended = n > stock && strstr(json, "\"ExtendedRange\"") != NULL;
+    if (out->extended && n > max) return 0;
+    out->strings = out->extended ? n : stock;
+    // The lowest string's standard pitch from the stock low string: guitar a fourth down per string added, bass B.
+    int base = !out->extended ? 0 : bass ? -5 : -5 * (n - 6);
+    if (out->extended) {
+        for (int i = 0; i < n; i++) out->positional[i] = v[i];
+        for (int i = 0; i < 6; i++) {
+            int from = bass ? 1 + i : n - 6 + i;
+            out->stock[i] = from < n ? v[from] : 0;
+        }
+    } else {
+        for (int i = 0; i < 6; i++) out->stock[i] = i < n ? v[i] : 0;
+    }
+    out->low = base + v[0] + cents / 100;
+    char suffix[16] = "";
+    if (out->extended) snprintf(suffix, sizeof suffix, " (%d-string)", n);
+    // The name from all the strings that count, lowest first.
+    int low = (int)v[0], r = (int)v[1], same = 1;
+    for (int i = 2; i < out->strings; i++) same = same && (int)v[i] == r;
+    if (same && low == r) snprintf(out->name, sizeof out->name, "%s standard%s", note(base + r), suffix);
+    else if (same && low == r - 2) snprintf(out->name, sizeof out->name, "Drop %s%s", note(base + r - 2), suffix);
+    else snprintf(out->name, sizeof out->name, "custom%s", suffix);
+    return 1;
+}
+
 // --- Minimal JSON walking for the "Tones" array ---
 
 static const char *ws(const char *p) {

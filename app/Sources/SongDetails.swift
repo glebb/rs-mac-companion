@@ -128,6 +128,8 @@ enum SongDetails {
     /// RockSniffer's ArrangementData: the first beat, then every beat whose measure differs.
     private static func measures(_ plain: Data) -> [[String: Any]] {
         var r = Reader(d: plain)
+        // An RS Extended Range chart's arrays come after an 8-byte header ("SNXR", version, instrument, strings, 0).
+        if plain.count >= 8, plain.prefix(4) == Data("SNXR".utf8) { r.at = 8 }
         guard let (n, start) = r.array(16) else { return [] }
         var out: [[String: Any]] = []
         var last: Int16?
@@ -195,11 +197,18 @@ enum SongDetails {
 
     private static func tuning(_ a: [String: Any]) -> [String: Any] {
         let t = a["Tuning"] as? [String: Any] ?? [:]
-        let strings = (0..<6).map { (t["string\($0)"] as? NSNumber)?.intValue ?? 0 }
+        var strings = (0..<6).map { (t["string\($0)"] as? NSNumber)?.intValue ?? 0 }
         let cents = (a["CentOffset"] as? NSNumber)?.intValue ?? 0
         let capo = (a["CapoFret"] as? NSNumber)?.intValue ?? 0
         var name = tunings.first { $0.strings == strings }?.name ?? "Custom Tuning"
         for p in ["1G-", "2G-", "3G-", "1B-", "2B-", "3B-"] { name = name.replacingOccurrences(of: p, with: "") }
+        // An RS Extended Range chart (7 or 8 strings, bass 5 or 6), which RockSniffer doesn't know: its stock strings,
+        // and the companion's name in RockSniffer's capitals ("B Standard (7-string)", "Drop A (5-string)")
+        if let x = Rig.tuning(a, bass: a["ArrangementName"] as? String == "Bass"), x.extended {
+            strings = x.stock.map { Int($0) }
+            name = x.name.replacingOccurrences(of: " standard", with: " Standard")
+                .replacingOccurrences(of: "custom", with: "Custom Tuning")
+        }
         if cents != 0 { name += ": A\(Int(floor(440 * pow(2, Double(cents) / 1200))))" }
         if capo != 0 { name += " (Capo Fret \(capo))" }
         var out: [String: Any] = ["CentsOffset": cents, "CapoFret": capo, "TuningName": name]

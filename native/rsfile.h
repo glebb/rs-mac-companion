@@ -61,6 +61,29 @@ int rs_json_str(const char *json, const char *key, char *out, size_t outlen);
 // The number value of the first "key": number in a JSON text into *out. Returns 1 if found.
 int rs_json_num(const char *json, const char *key, double *out);
 
+// An arrangement's tuning from its manifest's Tuning and CentOffset (bass: an arrangement named "Bass"). A stock
+// arrangement has string0..string5 (bass: the first 4 count), low string first, each an offset from E standard. An RS
+// Extended Range chart ("ExtendedRange" in its manifest) with 7 or 8 guitar strings or 5 or 6 bass strings has
+// string0..string{N-1}, thickest first, each an offset from that string's own standard pitch (guitar 8: F#1 B1 E2 A2
+// D3 G3 B3 E4, guitar 7 from B1; bass 6: B0 E1 A1 D2 G2 C3, bass 5 to G2). One with 6 (guitar) or 4 (bass) is stock.
+#define RS_MAX_STRINGS 8
+typedef struct {
+    int strings;                        // N: 6 or 4 for a stock arrangement, 7-8 or 5-6 for an extended one
+    int extended;                       // 1: an extended chart, positional holds its N offsets
+    double stock[6];                    // the stock strings, low string first, offsets from E standard: guitar the
+                                        // top six of an extended chart, bass its four after the low B, then the
+                                        // rest (a 6-string's high C) and 0
+    double positional[RS_MAX_STRINGS];  // an extended chart's N offsets, thickest string first
+    double low;                         // the lowest string's pitch in semitones from the stock low string (E2,
+                                        // bass E1), with the cent offset: B standard 7-string -5, F# 8-string -10
+    char name[32];                      // "E standard", "Drop D", "custom", "B standard (7-string)", "Drop A
+                                        // (5-string)", "custom (8-string)"
+} rs_tuning;
+
+// Read an arrangement's tuning (see rs_tuning) from a manifest's JSON text. Returns 1, or 0 if it has no Tuning (or
+// one this can't read: too few strings, or more than an extended chart has).
+int rs_json_tuning(const char *json, int bass, rs_tuning *out);
+
 // A tone definition from a manifest's "Tones" array: its key, name, name separator and its
 // ToneDescriptors without the "$[id]" prefix (e.g. "CLEAN", "CHORUS"); the game's tone banner
 // shows these tags. amp is the GearList's amp key (e.g. "Amp_HG500", "" if none) and gain its

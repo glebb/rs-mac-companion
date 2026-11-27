@@ -23,7 +23,8 @@ import time
 import paths
 
 BATCH = 50
-FORMAT = 4  # bump when rstool's output changes (2: tones have amp and gain; 3: rig, tuning, tempo; 4: length)
+FORMAT = 5  # bump when rstool's output changes (2: tones have amp and gain; 3: rig, tuning, tempo; 4: length;
+            # 5: RS Extended Range tunings: strings, tuningPositional, lowString, tuningName)
 
 
 def archives(game_dir):

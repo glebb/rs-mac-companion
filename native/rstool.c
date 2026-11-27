@@ -32,9 +32,12 @@ static void toc(rs_psarc *p) {
 }
 
 // One JSON line per arrangement, the song index format (index_songs.py): arrangement, path,
-// song, artist, songKey, persistentId, source, tuning (semitones per string, low to high, or
-// null), centOffset, tempo (average BPM, or null), length (seconds, or null), slots, tones [{key, name, descriptors,
-// separator, amp, gain (amp gain knob 0-100 or null), gear, rig}], changes [[time, slot id]].
+// song, artist, songKey, persistentId, source, tuning (the stock strings' offsets from E standard, low to high, or
+// null; bass: 4 and two more), strings (N, or null), tuningPositional (an RS Extended Range chart's N offsets, each
+// from that string's standard pitch, thickest first; only for one), lowString (the lowest string in semitones from
+// E2, bass E1, with the cent offset, or null), tuningName ("Drop D", "B standard (7-string)", ..., or null; see
+// rs_json_tuning), centOffset, tempo (average BPM, or null), length (seconds, or null), slots, tones [{key, name,
+// descriptors, separator, amp, gain (amp gain knob 0-100 or null), gear, rig}], changes [[time, slot id]].
 static void tones(rs_psarc *p, const char *archive) {
     for (uint32_t i = 0; i < p->n; i++) {
         const char *path = p->e[i].path;
@@ -56,14 +59,9 @@ static void tones(rs_psarc *p, const char *archive) {
         rs_json_str(json, "SongKey", song_key, sizeof song_key);
         rs_json_str(json, "PersistentID", pid, sizeof pid);
         for (int s = 0; s < 5; s++) rs_json_str(json, slot_keys[s], slots[s], sizeof slots[s]);
-        double tuning[6], cents = 0, tempo = -1, length = -1;
-        const char *t = strstr(json, "\"Tuning\"");
-        int tuned = t != NULL;
-        for (int s = 0; s < 6 && tuned; s++) {
-            char key[16];
-            snprintf(key, sizeof key, "string%d", s);
-            tuned = rs_json_num(t, key, &tuning[s]);
-        }
+        double cents = 0, tempo = -1, length = -1;
+        rs_tuning tuning;
+        int tuned = rs_json_tuning(json, !strcmp(kind, "Bass"), &tuning);
         rs_json_num(json, "CentOffset", &cents);
         rs_json_num(json, "SongAverageTempo", &tempo);
         rs_json_num(json, "SongLength", &length);
@@ -105,8 +103,19 @@ static void tones(rs_psarc *p, const char *archive) {
         printf(", \"source\": ");
         json_string(archive);
         printf(", \"tuning\": ");
-        if (tuned) printf("[%g, %g, %g, %g, %g, %g]", tuning[0], tuning[1], tuning[2], tuning[3], tuning[4], tuning[5]);
-        else printf("null");
+        if (tuned) {
+            const double *t = tuning.stock;
+            printf("[%g, %g, %g, %g, %g, %g], \"strings\": %d", t[0], t[1], t[2], t[3], t[4], t[5], tuning.strings);
+            if (tuning.extended) {
+                printf(", \"tuningPositional\": [");
+                for (int s = 0; s < tuning.strings; s++) printf("%s%g", s ? ", " : "", tuning.positional[s]);
+                printf("]");
+            }
+            printf(", \"lowString\": %g, \"tuningName\": ", tuning.low);
+            json_string(tuning.name);
+        } else {
+            printf("null, \"strings\": null, \"lowString\": null, \"tuningName\": null");
+        }
         printf(", \"centOffset\": %g, \"tempo\": ", cents);
         if (tempo > 0) printf("%g", tempo);
         else printf("null");

@@ -122,20 +122,52 @@ def effects(rig):
 NOTES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
 
 
-def tuning_name(tuning, bass=False):
-    """'E standard', 'Drop D', 'Eb standard', ... or 'custom' (None if unknown)."""
+def tuning_name(tuning, bass=False, strings=None):
+    """'E standard', 'Drop D', 'Eb standard', ... or 'custom' (None if unknown), from the stock strings' offsets
+    from E standard, low string first (bass: the first 4 count). With strings above the stock count (an RS Extended
+    Range chart: 7 or 8 guitar strings, 5 or 6 bass strings), tuning is the chart's N positional offsets, thickest
+    string first, each from that string's own standard pitch, and the name says the count: 'B standard (7-string)',
+    'Drop A (5-string)', 'custom (8-string)'. As rstool's tuningName (native/rsfile.c)."""
     if tuning is None:
         return None
-    strings = [int(x) for x in tuning[:4 if bass else 6]]
+    stock = 4 if bass else 6
+    n = strings if strings and strings > stock else stock
+    base = extended_base(n, bass)
+    suffix = f" ({n}-string)" if n > stock else ""
+    strings = [int(x) for x in tuning[:n]]
     rest = set(strings[1:])
     if len(rest) != 1:
-        return "custom"
+        return "custom" + suffix
     r = rest.pop()
     if strings[0] == r:
-        return f"{NOTES[(4 + r) % 12]} standard"
+        return f"{NOTES[(4 + base + r) % 12]} standard{suffix}"
     if strings[0] == r - 2:
-        return f"Drop {NOTES[(2 + r) % 12]}"
-    return "custom"
+        return f"Drop {NOTES[(2 + base + r) % 12]}{suffix}"
+    return "custom" + suffix
+
+
+def extended_base(strings, bass=False):
+    """The lowest string's standard pitch in semitones from the stock low string (E2, bass E1): 0 for the stock
+    count, a fourth down per guitar string added (7: B1 -5, 8: F#1 -10), B0 (-5) for a 5- or 6-string bass."""
+    stock = 4 if bass else 6
+    if not strings or strings <= stock:
+        return 0
+    return -5 if bass else -5 * (strings - 6)
+
+
+def arrangement_tuning_name(a):
+    """An index arrangement's tuning name: rstool's tuningName, else (an older index) from its six offsets."""
+    if "tuningName" in a:
+        return a["tuningName"]
+    return tuning_name(a.get("tuning"), bass=a.get("path") == "Bass")
+
+
+def low_string(a):
+    """An index arrangement's lowest string in semitones from the stock low string (E2, bass E1), with the cent
+    offset: rstool's lowString, else (an older index) its first offset; 0 if unknown."""
+    if a.get("lowString") is not None:
+        return a["lowString"]
+    return a["tuning"][0] + (a.get("centOffset") or 0) / 100 if a.get("tuning") else 0
 
 
 GUITAR_PATHS = ("Lead", "Rhythm", "Combo")
@@ -177,9 +209,9 @@ def main_tone(arrangement):
 
 def song_heaviness(arrangements):
     """How heavy a song is, 0-1: the drive of the tone its rhythm part (else its combo or lead
-    part) plays longest, plus 0.1 when the low string is tuned down to C or lower. A heavy solo
-    or bridge doesn't make a song heavy; what it sounds like most of the time does. None without
-    a guitar tone. Of several parts of a kind (combo, combo2) the first by name counts."""
+    part) plays longest, plus 0.1 when the lowest string is at C or lower (also the B of an extended-range
+    7-string). A heavy solo or bridge doesn't make a song heavy; what it sounds like most of the time
+    does. None without a guitar tone. Of several parts of a kind (combo, combo2) the first by name counts."""
     for path in ("Rhythm", "Combo", "Lead"):
         for a in sorted(arrangements, key=lambda a: a["arrangement"].lower()):  # main part before alternates
             if a["path"] != path:
@@ -188,6 +220,5 @@ def song_heaviness(arrangements):
             d = drive(t["rig"], t.get("gain")) if t and t.get("rig") else None
             if d is None:
                 continue
-            low = a["tuning"][0] + (a.get("centOffset") or 0) / 100 if a.get("tuning") else 0
-            return min(d + (0.1 if low <= -4 else 0), 1.0)
+            return min(d + (0.1 if low_string(a) <= -4 else 0), 1.0)
     return None
